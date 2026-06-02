@@ -99,16 +99,8 @@ export function PerAssigneeBar({ rows }) {
   );
 }
 
-export function PerProjectBar({ tasks }) {
-  const map = {};
-  for (const t of tasks) {
-    if (!map[t.project]) map[t.project] = { name: t.project, Completed: 0, Total: 0 };
-    map[t.project].Total += 1;
-    if (t.completed) map[t.project].Completed += 1;
-  }
-  const data = Object.values(map)
-    .sort((a, b) => b.Total - a.Total)
-    .slice(0, 10);
+export function PerProjectBar({ rows }) {
+  const data = (rows || []).slice(0, 10);
 
   return (
     <ChartCard title="Tasks by Board / Project" subtitle="Total vs completed (top 10)">
