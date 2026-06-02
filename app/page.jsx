@@ -188,10 +188,21 @@ export default function Dashboard() {
             <Select label="Status" value={fStatus} onChange={setFStatus} options={["All", "Open", "Completed", "Overdue"]} />
             <div className="col-span-2 md:col-span-1">
               <label className="filter-label">Due date (calendar)</label>
-              <div className="flex items-center gap-1.5">
-                <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="filter-input" title="From date" />
-                <span className="text-xs text-gray-400">→</span>
-                <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="filter-input" title="To date" />
+              <div className="flex flex-col gap-1.5 min-w-0">
+                <input
+                  type="date"
+                  value={dateFrom}
+                  onChange={(e) => setDateFrom(e.target.value)}
+                  className="filter-input min-w-0"
+                  title="From date"
+                />
+                <input
+                  type="date"
+                  value={dateTo}
+                  onChange={(e) => setDateTo(e.target.value)}
+                  className="filter-input min-w-0"
+                  title="To date"
+                />
               </div>
             </div>
           </div>
