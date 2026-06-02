@@ -30,8 +30,10 @@ create table if not exists mis_tasks (
   completed_at timestamptz,
   created_at   timestamptz,
   due_on       date,
+  is_one_time  boolean default false,   -- true if this is the person's one-time task
   synced_at    timestamptz default now()
 );
+alter table mis_tasks add column if not exists is_one_time boolean default false;
 -- If the table already existed, add the new list columns:
 alter table mis_tasks add column if not exists projects jsonb;
 alter table mis_tasks add column if not exists sections jsonb;

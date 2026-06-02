@@ -544,7 +544,7 @@ function AssigneeTable({ rows }) {
               <th className="py-2.5 px-2">Completed</th>
               <th className="py-2.5 px-2">Pending</th>
               <th className="py-2.5 px-2">Overdue</th>
-              <th className="py-2.5 px-2">Completion</th>
+              <th className="py-2.5 px-2">Completion (One-Time)</th>
             </tr>
           </thead>
           <tbody>
@@ -573,6 +573,11 @@ function AssigneeTable({ rows }) {
                   <span className={`inline-block px-2 py-1 rounded-md text-xs font-semibold ${pctBadge(r.pct)}`}>
                     {r.pct}%
                   </span>
+                  {typeof r.ot_total === "number" && (
+                    <span className="ml-2 text-xs text-gray-400">
+                      {r.ot_completed}/{r.ot_total} one-time
+                    </span>
+                  )}
                 </td>
               </tr>
             ))}

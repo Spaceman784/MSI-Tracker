@@ -44,12 +44,16 @@ create or replace function mis_summary(
     'perAssignee', (
       select coalesce(jsonb_agg(r), '[]'::jsonb) from (
         select jsonb_build_object(
-          'assignee',  assignee,
-          'total',     count(*),
-          'completed', count(*) filter (where completed),
-          'pending',   count(*) filter (where not completed),
-          'overdue',   count(*) filter (where not completed and due_on < current_date),
-          'pct',       coalesce(round(100.0 * count(*) filter (where completed) / nullif(count(*), 0)), 0)
+          'assignee',     assignee,
+          'total',        count(*),                                              -- all boards
+          'completed',    count(*) filter (where completed),                     -- all boards
+          'pending',      count(*) filter (where not completed),                 -- all boards
+          'overdue',      count(*) filter (where not completed and due_on < current_date),
+          'ot_total',     count(*) filter (where is_one_time),                   -- one-time only
+          'ot_completed', count(*) filter (where is_one_time and completed),     -- one-time only
+          -- Completion % = ONE-TIME completed / ONE-TIME total
+          'pct',          coalesce(round(100.0 * count(*) filter (where is_one_time and completed)
+                                   / nullif(count(*) filter (where is_one_time), 0)), 0)
         ) r
         from f group by assignee order by count(*) desc
       ) s

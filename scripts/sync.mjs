@@ -32,6 +32,22 @@ console.log(
 
 const runStart = new Date().toISOString();
 
+// ---- "One-Time" classification ----------------------------------
+// Default: a task is one-time if it lives in a board named "...One Time...".
+// Overrides: people whose one-time work is in a differently-named board.
+// (matched case-insensitively, trimmed)
+const norm = (s) => String(s || "").trim().toLowerCase();
+const ONE_TIME_OVERRIDES = {
+  "vallabh sumanth": ["sumanth's work tracker"], // use ONLY these as his one-time
+};
+function isOneTime(assignee, projects) {
+  const override = ONE_TIME_OVERRIDES[norm(assignee)];
+  const projs = (projects || []).map(norm);
+  if (override) return projs.some((p) => override.includes(p));
+  return projs.some((p) => /one[ -]?time/.test(p));
+}
+// -----------------------------------------------------------------
+
 // Tasks are already unique per gid (fetchWorkspaceData groups multi-homed
 // tasks). Map to rows, keeping the full projects + sections lists. A safety
 // de-dupe guards against any stray duplicate gid in one upsert batch.
@@ -50,6 +66,7 @@ for (const t of d.tasks) {
       completed_at: t.completed_at,
       created_at: t.created_at,
       due_on: t.due_on,
+      is_one_time: isOneTime(t.assignee, t.projects || (t.project ? [t.project] : [])),
       synced_at: runStart,
     });
   }
