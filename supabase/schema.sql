@@ -22,14 +22,19 @@ create table if not exists mis_tasks (
   gid          text primary key,
   name         text,
   assignee     text,
-  project      text,
-  section      text,
+  project      text,        -- primary project (display fallback)
+  projects     jsonb,       -- ALL projects this task belongs to
+  section      text,        -- primary section
+  sections     jsonb,       -- ALL sections this task belongs to
   completed    boolean default false,
   completed_at timestamptz,
   created_at   timestamptz,
   due_on       date,
   synced_at    timestamptz default now()
 );
+-- If the table already existed, add the new list columns:
+alter table mis_tasks add column if not exists projects jsonb;
+alter table mis_tasks add column if not exists sections jsonb;
 create index if not exists idx_mis_tasks_assignee  on mis_tasks(assignee);
 create index if not exists idx_mis_tasks_project    on mis_tasks(project);
 create index if not exists idx_mis_tasks_completed  on mis_tasks(completed);

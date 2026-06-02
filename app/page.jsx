@@ -479,8 +479,25 @@ function TaskTable({ tasks, today, page, pages, total, onPage }) {
                 <tr key={t.gid} className="border-b border-gray-100 dark:border-gray-900 hover:bg-gray-50 dark:hover:bg-[#1a1a1a]">
                   <td className="py-2.5 px-2 max-w-xs truncate" title={t.name}>{t.name}</td>
                   <td className="py-2.5 px-2">{t.assignee}</td>
-                  <td className="py-2.5 px-2 text-gray-500">{t.project}</td>
-                  <td className="py-2.5 px-2 text-gray-500">{t.section}</td>
+                  <td className="py-2.5 px-2 text-gray-500">
+                    {(() => {
+                      const ps = t.projects && t.projects.length ? t.projects : t.project ? [t.project] : [];
+                      const title = ps.join(", ");
+                      return (
+                        <span title={title}>
+                          {ps[0] || "—"}
+                          {ps.length > 1 && (
+                            <span className="ml-1 px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-300 text-[10px] font-semibold">
+                              +{ps.length - 1}
+                            </span>
+                          )}
+                        </span>
+                      );
+                    })()}
+                  </td>
+                  <td className="py-2.5 px-2 text-gray-500">
+                    {(t.sections && t.sections.length ? t.sections : t.section ? [t.section] : []).join(", ") || "—"}
+                  </td>
                   <td className="py-2.5 px-2 text-gray-500">{t.due_on || "—"}</td>
                   <td className="py-2.5 px-2">
                     <span className={`inline-block px-2 py-1 rounded-md text-xs font-semibold ${cls}`}>{status}</span>

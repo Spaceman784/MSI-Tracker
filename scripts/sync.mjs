@@ -32,9 +32,9 @@ console.log(
 
 const runStart = new Date().toISOString();
 
-// A task can belong to several projects (multi-homed), so the same gid can
-// appear more than once. Keep one row per gid — Postgres upsert cannot touch
-// the same primary key twice in a single batch.
+// Tasks are already unique per gid (fetchWorkspaceData groups multi-homed
+// tasks). Map to rows, keeping the full projects + sections lists. A safety
+// de-dupe guards against any stray duplicate gid in one upsert batch.
 const byGid = new Map();
 for (const t of d.tasks) {
   if (!byGid.has(t.gid)) {
@@ -43,7 +43,9 @@ for (const t of d.tasks) {
       name: t.name,
       assignee: t.assignee,
       project: t.project,
+      projects: t.projects || (t.project ? [t.project] : []),
       section: t.section,
+      sections: t.sections || (t.section ? [t.section] : []),
       completed: t.completed,
       completed_at: t.completed_at,
       created_at: t.created_at,
@@ -53,7 +55,7 @@ for (const t of d.tasks) {
   }
 }
 const rows = [...byGid.values()];
-console.log(`→ ${rows.length} unique tasks after de-duplicating multi-project tasks`);
+console.log(`→ ${rows.length} unique tasks (multi-project tasks counted once)`);
 
 const CHUNK = 500;
 for (let i = 0; i < rows.length; i += CHUNK) {
