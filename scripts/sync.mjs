@@ -68,7 +68,33 @@ for (let i = 0; i < rows.length; i += CHUNK) {
   console.log(`  upserted ${Math.min(i + CHUNK, rows.length)}/${rows.length}`);
 }
 
-// Remove tasks that no longer exist in Asana (not touched this run)
+// Tasks not touched this run = removed from Asana since last sync.
+// Log them to mis_changes (for the Activity feed) BEFORE deleting.
+const { data: removedRows, error: selErr } = await sb
+  .from("mis_tasks")
+  .select("gid,name,assignee,project")
+  .lt("synced_at", runStart);
+if (selErr) console.error("⚠ removed-detect error:", selErr.message);
+if (removedRows && removedRows.length) {
+  const changeRows = removedRows.map((r) => ({
+    gid: r.gid,
+    name: r.name,
+    assignee: r.assignee,
+    project: r.project,
+    action: "removed",
+    at: runStart,
+  }));
+  for (let i = 0; i < changeRows.length; i += 500) {
+    const { error } = await sb.from("mis_changes").insert(changeRows.slice(i, i + 500));
+    if (error) {
+      console.error("⚠ change-log error (is mis_changes table created?):", error.message);
+      break;
+    }
+  }
+  console.log(`→ logged ${changeRows.length} removed tasks`);
+}
+
+// Remove tasks that no longer exist in Asana
 const { error: delErr } = await sb.from("mis_tasks").delete().lt("synced_at", runStart);
 if (delErr) console.error("⚠ cleanup error:", delErr.message);
 

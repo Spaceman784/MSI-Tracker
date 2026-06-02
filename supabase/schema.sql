@@ -49,6 +49,19 @@ create table if not exists mis_meta (
 );
 alter table mis_meta enable row level security;
 
+-- ---- Change log (for the Activity feed: removed tasks) -----
+create table if not exists mis_changes (
+  id       bigint generated always as identity primary key,
+  gid      text,
+  name     text,
+  assignee text,
+  project  text,
+  action   text,            -- 'removed'
+  at       timestamptz default now()
+);
+create index if not exists idx_mis_changes_at on mis_changes (at desc);
+alter table mis_changes enable row level security;
+
 -- The app uses the service-role key (server side), which bypasses RLS.
 -- RLS is enabled with NO public policies so the anon key cannot read these.
 

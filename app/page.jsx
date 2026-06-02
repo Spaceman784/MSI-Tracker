@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { StatusDonut, PerAssigneeBar, PerProjectBar } from "@/components/Charts";
 
-const TABS = ["Overview", "Team", "Tasks", "Charts"];
+const TABS = ["Overview", "Team", "Tasks", "Charts", "Activity"];
 
 export default function Dashboard() {
   const router = useRouter();
@@ -19,6 +19,8 @@ export default function Dashboard() {
   const [detailGid, setDetailGid] = useState(null);
   const [detail, setDetail] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [activity, setActivity] = useState(null);
+  const [refreshTick, setRefreshTick] = useState(0);
 
   // filters
   const [search, setSearch] = useState("");
@@ -95,6 +97,43 @@ export default function Dashboard() {
       .catch(() => setDetail({ error: "Failed to load task" }))
       .finally(() => setDetailLoading(false));
   }, [detailGid]);
+
+  // auto-refresh every 60s (silent — no loading flash)
+  const queryRef = useRef("");
+  useEffect(() => {
+    queryRef.current = query;
+  }, [query]);
+  useEffect(() => {
+    const id = setInterval(() => setRefreshTick((t) => t + 1), 60000);
+    return () => clearInterval(id);
+  }, []);
+  useEffect(() => {
+    if (refreshTick === 0) return;
+    fetch(`/api/data?${queryRef.current}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        if (j) {
+          setData(j);
+          setErr(null);
+        }
+      })
+      .catch(() => {});
+  }, [refreshTick]);
+
+  // load the Activity feed when the tab is open (and on each refresh tick)
+  useEffect(() => {
+    if (tab !== "Activity") return;
+    let cancelled = false;
+    fetch("/api/activity")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        if (!cancelled && j) setActivity(j);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [tab, refreshTick]);
 
   function toggleTheme() {
     const next = !dark;
@@ -307,6 +346,8 @@ export default function Dashboard() {
                 </div>
               </div>
             )}
+
+            {tab === "Activity" && <ActivityFeed data={activity} onSelect={setDetailGid} />}
           </>
         )}
       </div>
@@ -539,6 +580,68 @@ function AssigneeTable({ rows }) {
         </table>
       </div>
     </Panel>
+  );
+}
+
+function ActivityFeed({ data, onSelect }) {
+  if (!data) {
+    return <Panel><p className="text-sm text-gray-500">Loading activity…</p></Panel>;
+  }
+  const fmt = (d) => (d ? new Date(d).toLocaleString() : "—");
+
+  const Item = ({ t, date, onClick }) => (
+    <li
+      onClick={onClick}
+      className={`py-2.5 border-b border-gray-100 dark:border-gray-900 last:border-0 ${
+        onClick ? "cursor-pointer hover:bg-indigo-50 dark:hover:bg-[#1a1a1a] -mx-2 px-2 rounded" : ""
+      }`}
+    >
+      <p className="font-medium text-sm truncate" title={t.name}>{t.name}</p>
+      <p className="text-xs text-gray-400 mt-0.5">
+        {t.assignee || "Unassigned"} • {(t.projects && t.projects[0]) || t.project || "—"} • {date}
+      </p>
+    </li>
+  );
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      <Panel>
+        <h3 className="font-semibold text-sm mb-1">🟢 Recently Added</h3>
+        <p className="text-xs text-gray-400 mb-2">Newest tasks created in Asana</p>
+        <ul>
+          {data.added.length === 0 && <li className="text-sm text-gray-400 py-2">Nothing yet.</li>}
+          {data.added.map((t) => (
+            <Item key={t.gid} t={t} date={fmt(t.created_at)} onClick={() => onSelect(t.gid)} />
+          ))}
+        </ul>
+      </Panel>
+
+      <Panel>
+        <h3 className="font-semibold text-sm mb-1">✅ Recently Completed</h3>
+        <p className="text-xs text-gray-400 mb-2">Tasks marked done</p>
+        <ul>
+          {data.completed.length === 0 && <li className="text-sm text-gray-400 py-2">Nothing yet.</li>}
+          {data.completed.map((t) => (
+            <Item key={t.gid} t={t} date={fmt(t.completed_at)} onClick={() => onSelect(t.gid)} />
+          ))}
+        </ul>
+      </Panel>
+
+      <Panel>
+        <h3 className="font-semibold text-sm mb-1">🔴 Recently Removed</h3>
+        <p className="text-xs text-gray-400 mb-2">Tasks deleted from Asana</p>
+        <ul>
+          {data.removed.length === 0 && (
+            <li className="text-sm text-gray-400 py-2">
+              {data.removedError ? "Run the mis_changes SQL to enable this." : "No removals recorded yet."}
+            </li>
+          )}
+          {data.removed.map((t, i) => (
+            <Item key={t.gid + "-" + i} t={t} date={fmt(t.at)} />
+          ))}
+        </ul>
+      </Panel>
+    </div>
   );
 }
 
