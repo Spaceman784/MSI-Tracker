@@ -197,9 +197,9 @@ export default function Dashboard() {
                 className="filter-input"
               />
             </div>
-            <Select label="Assignee" value={fAssignee} onChange={setFAssignee} options={lists.assignees} />
-            <Select label="Board / Project" value={fProject} onChange={setFProject} options={lists.projects} />
-            <Select label="Section" value={fSection} onChange={setFSection} options={lists.sections} />
+            <SearchableSelect label="Assignee" value={fAssignee} onChange={setFAssignee} options={lists.assignees} />
+            <SearchableSelect label="Board / Project" value={fProject} onChange={setFProject} options={lists.projects} />
+            <SearchableSelect label="Section" value={fSection} onChange={setFSection} options={lists.sections} />
             <Select label="Status" value={fStatus} onChange={setFStatus} options={["All", "Open", "Completed", "Overdue"]} />
             <div className="col-span-2 md:col-span-1">
               <label className="filter-label">Due date (calendar)</label>
@@ -380,6 +380,81 @@ function Select({ label, value, onChange, options }) {
           </option>
         ))}
       </select>
+    </div>
+  );
+}
+
+function SearchableSelect({ label, value, onChange, options }) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const ref = useRef(null);
+
+  useEffect(() => {
+    function onDoc(e) {
+      if (ref.current && !ref.current.contains(e.target)) {
+        setOpen(false);
+        setQ("");
+      }
+    }
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, []);
+
+  const filtered = useMemo(() => {
+    const s = q.trim().toLowerCase();
+    if (!s) return options;
+    return options.filter((o) => String(o).toLowerCase().includes(s));
+  }, [q, options]);
+
+  const LIMIT = 200;
+
+  return (
+    <div className="relative" ref={ref}>
+      <label className="filter-label">{label}</label>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="filter-input text-left flex items-center justify-between gap-1"
+      >
+        <span className="truncate">{value}</span>
+        <span className="text-gray-400 text-xs">▾</span>
+      </button>
+      {open && (
+        <div className="absolute z-30 mt-1 w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#141414] shadow-xl">
+          <input
+            autoFocus
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Type to search…"
+            className="w-full px-3 py-2 text-sm border-b border-gray-100 dark:border-gray-800 bg-transparent outline-none"
+          />
+          <ul className="max-h-60 overflow-y-auto py-1">
+            {filtered.length === 0 && <li className="px-3 py-2 text-sm text-gray-400">No matches</li>}
+            {filtered.slice(0, LIMIT).map((o) => (
+              <li key={o}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onChange(o);
+                    setOpen(false);
+                    setQ("");
+                  }}
+                  className={`w-full text-left px-3 py-1.5 text-sm hover:bg-indigo-50 dark:hover:bg-[#1a1a1a] truncate ${
+                    o === value ? "text-indigo-600 dark:text-indigo-400 font-semibold" : ""
+                  }`}
+                >
+                  {o}
+                </button>
+              </li>
+            ))}
+            {filtered.length > LIMIT && (
+              <li className="px-3 py-1.5 text-xs text-gray-400">
+                +{filtered.length - LIMIT} more — keep typing to narrow…
+              </li>
+            )}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }
