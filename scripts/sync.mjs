@@ -32,18 +32,28 @@ console.log(
 
 const runStart = new Date().toISOString();
 
-const rows = d.tasks.map((t) => ({
-  gid: t.gid,
-  name: t.name,
-  assignee: t.assignee,
-  project: t.project,
-  section: t.section,
-  completed: t.completed,
-  completed_at: t.completed_at,
-  created_at: t.created_at,
-  due_on: t.due_on,
-  synced_at: runStart,
-}));
+// A task can belong to several projects (multi-homed), so the same gid can
+// appear more than once. Keep one row per gid — Postgres upsert cannot touch
+// the same primary key twice in a single batch.
+const byGid = new Map();
+for (const t of d.tasks) {
+  if (!byGid.has(t.gid)) {
+    byGid.set(t.gid, {
+      gid: t.gid,
+      name: t.name,
+      assignee: t.assignee,
+      project: t.project,
+      section: t.section,
+      completed: t.completed,
+      completed_at: t.completed_at,
+      created_at: t.created_at,
+      due_on: t.due_on,
+      synced_at: runStart,
+    });
+  }
+}
+const rows = [...byGid.values()];
+console.log(`→ ${rows.length} unique tasks after de-duplicating multi-project tasks`);
 
 const CHUNK = 500;
 for (let i = 0; i < rows.length; i += CHUNK) {
