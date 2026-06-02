@@ -74,6 +74,14 @@ for (const t of d.tasks) {
 const rows = [...byGid.values()];
 console.log(`→ ${rows.length} unique tasks (multi-project tasks counted once)`);
 
+// The one-time feature adds an `is_one_time` column. If it hasn't been created
+// yet, sync WITHOUT it so the sync never fails. (Run supabase/functions.sql to enable.)
+const probe = await sb.from("mis_tasks").select("is_one_time").limit(1);
+if (probe.error && /is_one_time/i.test(probe.error.message)) {
+  console.log("ℹ 'is_one_time' column not found — syncing without it. Run the SQL to enable one-time completion.");
+  for (const r of rows) delete r.is_one_time;
+}
+
 const CHUNK = 500;
 for (let i = 0; i < rows.length; i += CHUNK) {
   const chunk = rows.slice(i, i + CHUNK);

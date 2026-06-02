@@ -117,8 +117,8 @@ export default function AdminPage() {
             <Panel>
               <h2 className="font-semibold mb-3 text-sm">Add / update a user</h2>
               <form onSubmit={addUser} className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <Field label="Username" value={username} onChange={setUsername} placeholder="e.g. arjun" />
-                <Field label="Display name" value={displayName} onChange={setDisplayName} placeholder="Arjun Paleja" />
+                <Field label="Username" value={username} onChange={setUsername} placeholder="e.g. priya" />
+                <Field label="Display name" value={displayName} onChange={setDisplayName} placeholder="Priya Sharma" />
                 <Field label="Password" value={password} onChange={setPassword} />
                 <div>
                   <label className="filter-label">Role</label>
