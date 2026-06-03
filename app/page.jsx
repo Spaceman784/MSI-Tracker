@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { StatusDonut, PerAssigneeBar, PerProjectBar } from "@/components/Charts";
 import Logo from "@/components/Logo";
 
-const TABS = ["Overview", "Team", "Tasks", "Charts", "Performance", "Activity"];
+const TABS = ["Overview", "Team", "Tasks", "Charts", "Performance", "Daily", "Activity"];
 
 export default function Dashboard() {
   const router = useRouter();
@@ -22,6 +22,7 @@ export default function Dashboard() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [activity, setActivity] = useState(null);
   const [performance, setPerformance] = useState(null);
+  const [daily, setDaily] = useState(null);
   const [perfPerson, setPerfPerson] = useState(null);
   const [perfTasks, setPerfTasks] = useState(null);
   const [refreshTick, setRefreshTick] = useState(0);
@@ -149,6 +150,24 @@ export default function Dashboard() {
         if (!cancelled) setPerformance(j);
       })
       .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [tab, refreshTick]);
+
+  // load the Daily to-do scorecard when the tab is open (and on each refresh tick)
+  useEffect(() => {
+    if (tab !== "Daily") return;
+    let cancelled = false;
+    setDaily(null);
+    fetch("/api/daily")
+      .then((r) => r.json())
+      .then((j) => {
+        if (!cancelled) setDaily(j);
+      })
+      .catch((e) => {
+        if (!cancelled) setDaily({ error: "DB_ERROR", message: String(e) });
+      });
     return () => {
       cancelled = true;
     };
@@ -375,6 +394,8 @@ export default function Dashboard() {
             )}
 
             {tab === "Performance" && <PerformanceTable data={performance} onSelect={setPerfPerson} />}
+
+            {tab === "Daily" && <DailyScorecard data={daily} />}
 
             {tab === "Activity" && <ActivityFeed data={activity} onSelect={setDetailGid} />}
           </>
@@ -709,6 +730,128 @@ function PerformanceTable({ data, onSelect }) {
             ))}
           </tbody>
         </table>
+      </div>
+    </Panel>
+  );
+}
+
+function DailyScorecard({ data }) {
+  const [q, setQ] = useState("");
+  if (!data) return <Panel><p className="text-sm text-gray-500">Loading daily tracker…</p></Panel>;
+  if (data.error) {
+    return (
+      <Panel>
+        <p className="font-semibold text-amber-600 dark:text-amber-400 mb-1">Daily tracker not ready</p>
+        <p className="text-sm text-gray-500">{data.message || "Run supabase/daily.sql, then sync."}</p>
+      </Panel>
+    );
+  }
+  const rows = data.rows || [];
+  const weekDates = data.weekDates || [];
+  const labels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const todayStr = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+
+  const s = q.trim().toLowerCase();
+  const filtered = s
+    ? rows.filter((r) => (r.person || "").toLowerCase().includes(s) || (r.task || "").toLowerCase().includes(s))
+    : rows;
+
+  // group tasks under each person
+  const byPerson = {};
+  for (const r of filtered) (byPerson[r.person] = byPerson[r.person] || []).push(r);
+  const people = Object.keys(byPerson).sort((a, b) => a.localeCompare(b));
+
+  function cell(date, done) {
+    if (done) return "bg-green-100 text-green-700 dark:bg-green-950/50 dark:text-green-400"; // ticked
+    if (date < todayStr) return "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-400"; // missed (past)
+    return "bg-gray-100 text-gray-400 dark:bg-gray-800 dark:text-gray-600"; // upcoming
+  }
+
+  return (
+    <Panel>
+      <h2 className="font-semibold text-sm mb-1">Daily to-do scorecard — target 6/week (Mon–Sat)</h2>
+      <p className="text-xs text-gray-400 mb-3">
+        Each daily task should be ticked once per working day. ✓ = done · ✗ = missed · grey = upcoming.{" "}
+        {data.from && data.to ? `Week ${data.from} → ${data.to} (IST).` : ""}{" "}
+        {data.lastSynced ? `Last daily sync ${new Date(data.lastSynced).toLocaleString()}.` : ""}
+      </p>
+      <input
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+        placeholder="Search person or task…"
+        className="filter-input mb-3 max-w-xs"
+      />
+      {people.length === 0 && (
+        <p className="py-6 text-center text-gray-400">
+          No daily tasks found. Run the daily sync, and make sure tasks in each To-Do board's DAILY section are assigned in Asana.
+        </p>
+      )}
+      <div className="space-y-5 max-h-[75vh] overflow-y-auto">
+        {people.map((person) => {
+          const tasks = byPerson[person];
+          const totalDone = tasks.reduce((a, t) => a + (t.done || 0), 0);
+          const totalTarget = tasks.length * 6;
+          return (
+            <div key={person}>
+              <div className="flex items-center gap-2 mb-1.5">
+                <span className="w-7 h-7 rounded-full bg-indigo-100 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-300 flex items-center justify-center text-xs font-semibold">
+                  {initials(person)}
+                </span>
+                <span className="font-medium text-sm">{person}</span>
+                <span className="text-xs text-gray-400">
+                  {tasks.length} daily task{tasks.length > 1 ? "s" : ""} · {totalDone}/{totalTarget} this week
+                </span>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-[11px] uppercase tracking-wide text-gray-400 border-b border-gray-200 dark:border-gray-800">
+                      <th className="py-1.5 px-2">Daily task</th>
+                      {labels.map((l, i) => (
+                        <th key={l} className="py-1.5 px-1 text-center w-10" title={weekDates[i]}>
+                          {l}
+                        </th>
+                      ))}
+                      <th className="py-1.5 px-2 text-center">Done</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {tasks.map((t) => {
+                      const dates = t.dates || [];
+                      return (
+                        <tr key={t.task_gid} className="border-b border-gray-100 dark:border-gray-900">
+                          <td className="py-1.5 px-2">{t.task}</td>
+                          {weekDates.map((d) => {
+                            const done = dates.includes(d);
+                            return (
+                              <td key={d} className="py-1.5 px-1 text-center">
+                                <span
+                                  className={`inline-flex items-center justify-center w-6 h-6 rounded-md text-xs font-bold ${cell(d, done)}`}
+                                  title={d}
+                                >
+                                  {done ? "✓" : d < todayStr ? "✗" : "·"}
+                                </span>
+                              </td>
+                            );
+                          })}
+                          <td className="py-1.5 px-2 text-center">
+                            <span
+                              className={`inline-block px-2 py-1 rounded-md text-xs font-semibold ${
+                                t.done >= 6 ? pctBadge(100) : t.done >= 4 ? pctBadge(60) : pctBadge(0)
+                              }`}
+                            >
+                              {t.done}/6
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          );
+        })}
       </div>
     </Panel>
   );

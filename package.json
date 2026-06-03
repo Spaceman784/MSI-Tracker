@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "next lint",
     "seed": "node --env-file=.env.local scripts/seed.mjs",
-    "sync": "node --env-file=.env.local scripts/sync.mjs"
+    "sync": "node --env-file=.env.local scripts/sync.mjs",
+    "sync:daily": "node --env-file=.env.local scripts/sync-daily.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "2.45.4",

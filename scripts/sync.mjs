@@ -168,4 +168,15 @@ await sb
   .from("mis_meta")
   .upsert({ key: "last_synced", value: runStart, updated_at: runStart }, { onConflict: "key" });
 
+// ---- Daily to-do completion tracking (additive, fully guarded) ----
+// Reads each person's "To do" -> DAILY section story logs. If anything
+// here fails (or the table isn't created yet), it NEVER breaks the main sync.
+try {
+  const { syncDailyCompletions } = await import("../lib/daily.js");
+  console.log("→ Syncing daily to-do completions…");
+  await syncDailyCompletions(sb, token, process.env.ASANA_WORKSPACE_GID || "", { log: console.log });
+} catch (e) {
+  console.error("⚠ daily-completions step skipped:", e.message);
+}
+
 console.log(`✅ Sync complete in ${((Date.now() - t0) / 1000).toFixed(0)}s. Last synced: ${runStart}`);
