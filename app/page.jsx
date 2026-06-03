@@ -628,6 +628,7 @@ function AssigneeTable({ rows }) {
 }
 
 function PerformanceTable({ data, onSelect }) {
+  const [q, setQ] = useState("");
   if (!data) return <Panel><p className="text-sm text-gray-500">Loading performance…</p></Panel>;
   if (data.error) {
     return (
@@ -638,6 +639,8 @@ function PerformanceTable({ data, onSelect }) {
     );
   }
   const rows = data.rows || [];
+  const s = q.trim().toLowerCase();
+  const filtered = s ? rows.filter((r) => r.assignee.toLowerCase().includes(s)) : rows;
   return (
     <Panel>
       <h2 className="font-semibold text-sm mb-1">Performance scorecard — One-Time tasks</h2>
@@ -645,6 +648,12 @@ function PerformanceTable({ data, onSelect }) {
         Score is a penalty: <span className="font-semibold">0% = perfect</span> (all on time), and it goes more negative
         with delays, overdue, and date-revisions. Worst first.
       </p>
+      <input
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+        placeholder="Search person…"
+        className="filter-input mb-3 max-w-xs"
+      />
       <div className="overflow-x-auto max-h-[75vh]">
         <table className="w-full text-sm">
           <thead className="sticky top-0 bg-white dark:bg-[#141414]">
@@ -662,10 +671,10 @@ function PerformanceTable({ data, onSelect }) {
             </tr>
           </thead>
           <tbody>
-            {rows.length === 0 && (
-              <tr><td colSpan={10} className="py-6 text-center text-gray-400">No one-time tasks found.</td></tr>
+            {filtered.length === 0 && (
+              <tr><td colSpan={10} className="py-6 text-center text-gray-400">No matches.</td></tr>
             )}
-            {rows.map((r) => (
+            {filtered.map((r) => (
               <tr
                 key={r.assignee}
                 onClick={() => onSelect && onSelect(r)}
