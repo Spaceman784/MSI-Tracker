@@ -21,6 +21,8 @@ export default function Dashboard() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [activity, setActivity] = useState(null);
   const [performance, setPerformance] = useState(null);
+  const [perfPerson, setPerfPerson] = useState(null);
+  const [perfTasks, setPerfTasks] = useState(null);
   const [refreshTick, setRefreshTick] = useState(0);
 
   // filters
@@ -150,6 +152,16 @@ export default function Dashboard() {
       cancelled = true;
     };
   }, [tab, refreshTick]);
+
+  // load a person's one-time tasks for the Performance drill-down
+  useEffect(() => {
+    if (!perfPerson) return;
+    setPerfTasks(null);
+    fetch(`/api/performance/tasks?assignee=${encodeURIComponent(perfPerson.assignee)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => setPerfTasks(j ? j.tasks : []))
+      .catch(() => setPerfTasks([]));
+  }, [perfPerson]);
 
   function toggleTheme() {
     const next = !dark;
@@ -363,12 +375,22 @@ export default function Dashboard() {
               </div>
             )}
 
-            {tab === "Performance" && <PerformanceTable data={performance} />}
+            {tab === "Performance" && <PerformanceTable data={performance} onSelect={setPerfPerson} />}
 
             {tab === "Activity" && <ActivityFeed data={activity} onSelect={setDetailGid} />}
           </>
         )}
       </div>
+
+      <PerformancePersonDrawer
+        person={perfPerson}
+        tasks={perfTasks}
+        onClose={() => {
+          setPerfPerson(null);
+          setPerfTasks(null);
+        }}
+        onSelectTask={(gid) => setDetailGid(gid)}
+      />
 
       <TaskDetailDrawer
         open={!!detailGid}
@@ -605,7 +627,7 @@ function AssigneeTable({ rows }) {
   );
 }
 
-function PerformanceTable({ data }) {
+function PerformanceTable({ data, onSelect }) {
   if (!data) return <Panel><p className="text-sm text-gray-500">Loading performance…</p></Panel>;
   if (data.error) {
     return (
@@ -644,8 +666,12 @@ function PerformanceTable({ data }) {
               <tr><td colSpan={10} className="py-6 text-center text-gray-400">No one-time tasks found.</td></tr>
             )}
             {rows.map((r) => (
-              <tr key={r.assignee} className="border-b border-gray-100 dark:border-gray-900 hover:bg-gray-50 dark:hover:bg-[#1a1a1a]">
-                <td className="py-2.5 px-2 font-medium">{r.assignee}</td>
+              <tr
+                key={r.assignee}
+                onClick={() => onSelect && onSelect(r)}
+                className="border-b border-gray-100 dark:border-gray-900 hover:bg-indigo-50 dark:hover:bg-[#1a1a1a] cursor-pointer"
+              >
+                <td className="py-2.5 px-2 font-medium text-indigo-700 dark:text-indigo-300">{r.assignee}</td>
                 <td className="py-2.5 px-2">{r.total}</td>
                 <td className="py-2.5 px-2 text-green-600 dark:text-green-400">{r.completed}</td>
                 <td className="py-2.5 px-2 text-amber-600 dark:text-amber-400">{r.pending}</td>
@@ -677,6 +703,100 @@ function PerformanceTable({ data }) {
         </table>
       </div>
     </Panel>
+  );
+}
+
+function daysBetween(a, b) {
+  return Math.round((new Date(b).getTime() - new Date(a).getTime()) / 86400000);
+}
+
+function classifyTask(t, today) {
+  if (t.completed) {
+    if (!t.due_on || !t.completed_at) return { label: "No due date", cls: "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300", days: "" };
+    const cd = t.completed_at.slice(0, 10);
+    if (cd <= t.due_on) return { label: "On-time", cls: "bg-green-100 text-green-700 dark:bg-green-950/50 dark:text-green-400", days: "" };
+    return { label: "Delayed", cls: "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-400", days: `+${daysBetween(t.due_on, cd)}d` };
+  }
+  if (t.due_on && t.due_on < today) {
+    return { label: "Overdue", cls: "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-400", days: `${daysBetween(t.due_on, today)}d` };
+  }
+  return { label: "Pending", cls: "bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-400", days: "" };
+}
+
+function PerformancePersonDrawer({ person, tasks, onClose, onSelectTask }) {
+  if (!person) return null;
+  const today = new Date().toISOString().slice(0, 10);
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end">
+      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+      <div className="relative w-full max-w-2xl h-full bg-white dark:bg-[#141414] shadow-2xl overflow-y-auto">
+        <div className="sticky top-0 bg-white dark:bg-[#141414] border-b border-gray-200 dark:border-gray-800 px-5 py-4 flex items-start justify-between gap-3">
+          <div>
+            <p className="text-xs text-gray-400 uppercase tracking-wide">Performance · One-Time tasks</p>
+            <h2 className="font-bold text-base">{person.assignee}</h2>
+            <div className="flex flex-wrap gap-2 mt-2 text-xs">
+              <span className={`px-2 py-1 rounded-md font-semibold ${person.score < 0 ? "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-400" : "bg-green-100 text-green-700 dark:bg-green-950/50 dark:text-green-400"}`}>
+                Score {person.score}%
+              </span>
+              <span className="text-gray-500">Total {person.total}</span>
+              <span className="text-green-600 dark:text-green-400">On-time {person.on_time}</span>
+              <span className="text-red-600 dark:text-red-400">Delayed {person.delayed}</span>
+              <span className="text-red-600 dark:text-red-400">Overdue {person.overdue}</span>
+              <span className="text-orange-600 dark:text-orange-400">Revised {person.revised}</span>
+              <span className="text-gray-400">No due {person.no_due}</span>
+            </div>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 text-xl leading-none">✕</button>
+        </div>
+
+        {!tasks && <p className="p-5 text-sm text-gray-500">Loading tasks…</p>}
+        {tasks && tasks.length === 0 && <p className="p-5 text-sm text-gray-400">No one-time tasks.</p>}
+        {tasks && tasks.length > 0 && (
+          <div className="p-3">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs uppercase tracking-wide text-gray-400 border-b border-gray-200 dark:border-gray-800">
+                  <th className="py-2 px-2">Task</th>
+                  <th className="py-2 px-2">Due</th>
+                  <th className="py-2 px-2">Completed</th>
+                  <th className="py-2 px-2">Status</th>
+                  <th className="py-2 px-2">Revised</th>
+                </tr>
+              </thead>
+              <tbody>
+                {tasks.map((t) => {
+                  const c = classifyTask(t, today);
+                  const revised =
+                    t.original_due_on && t.due_on && Math.abs(daysBetween(t.original_due_on, t.due_on)) > 7;
+                  return (
+                    <tr
+                      key={t.gid}
+                      onClick={() => onSelectTask && onSelectTask(t.gid)}
+                      className="border-b border-gray-100 dark:border-gray-900 hover:bg-indigo-50 dark:hover:bg-[#1a1a1a] cursor-pointer"
+                    >
+                      <td className="py-2 px-2 max-w-xs truncate" title={t.name}>{t.name}</td>
+                      <td className="py-2 px-2 text-gray-500">{t.due_on || "—"}</td>
+                      <td className="py-2 px-2 text-gray-500">{t.completed_at ? t.completed_at.slice(0, 10) : "—"}</td>
+                      <td className="py-2 px-2">
+                        <span className={`inline-block px-2 py-0.5 rounded-md text-xs font-semibold ${c.cls}`}>{c.label}</span>
+                        {c.days && <span className="ml-1.5 text-xs text-gray-400">{c.days}</span>}
+                      </td>
+                      <td className="py-2 px-2">
+                        {revised ? (
+                          <span className="px-2 py-0.5 rounded-md text-xs font-semibold bg-orange-100 text-orange-700 dark:bg-orange-950/50 dark:text-orange-400">🔁 Revised</span>
+                        ) : (
+                          <span className="text-gray-300 dark:text-gray-700">—</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
