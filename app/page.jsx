@@ -535,6 +535,10 @@ function initials(name) {
 function AssigneeTable({ rows }) {
   return (
     <Panel>
+      <p className="text-xs text-gray-400 mb-3">
+        Per-person performance — <span className="font-semibold">One-Time tasks only</span> (Total, Completed, Pending,
+        Overdue &amp; % are all one-time)
+      </p>
       <div className="overflow-x-auto max-h-[70vh]">
         <table className="w-full text-sm">
           <thead className="sticky top-0 bg-white dark:bg-[#141414]">
@@ -544,7 +548,7 @@ function AssigneeTable({ rows }) {
               <th className="py-2.5 px-2">Completed</th>
               <th className="py-2.5 px-2">Pending</th>
               <th className="py-2.5 px-2">Overdue</th>
-              <th className="py-2.5 px-2">Completion (One-Time)</th>
+              <th className="py-2.5 px-2">Completion</th>
             </tr>
           </thead>
           <tbody>
@@ -573,11 +577,6 @@ function AssigneeTable({ rows }) {
                   <span className={`inline-block px-2 py-1 rounded-md text-xs font-semibold ${pctBadge(r.pct)}`}>
                     {r.pct}%
                   </span>
-                  {typeof r.ot_total === "number" && (
-                    <span className="ml-2 text-xs text-gray-400">
-                      {r.ot_completed}/{r.ot_total} one-time
-                    </span>
-                  )}
                 </td>
               </tr>
             ))}
