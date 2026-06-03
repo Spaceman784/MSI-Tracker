@@ -3,6 +3,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { StatusDonut, PerAssigneeBar, PerProjectBar } from "@/components/Charts";
+import Logo from "@/components/Logo";
 
 const TABS = ["Overview", "Team", "Tasks", "Charts", "Performance", "Activity"];
 
@@ -214,9 +215,7 @@ export default function Dashboard() {
         {/* Header */}
         <div className="bg-white dark:bg-[#141414] rounded-2xl border border-gray-200 dark:border-gray-800 p-5 shadow-sm flex flex-wrap items-center justify-between gap-3 mb-4">
           <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-indigo-500 to-indigo-700 text-white flex items-center justify-center font-bold text-lg shadow">
-              N
-            </div>
+            <Logo size={44} />
             <div>
               <h1 className="text-lg font-bold leading-tight">NapChief MIS Performance Dashboard</h1>
               <p className="text-xs text-gray-400 dark:text-gray-500">

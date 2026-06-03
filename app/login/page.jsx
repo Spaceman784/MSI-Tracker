@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Logo from "@/components/Logo";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -37,9 +38,7 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-100 via-white to-gray-200 dark:from-black dark:via-[#0b0b0b] dark:to-[#111] px-4">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-br from-indigo-500 to-indigo-700 text-white text-2xl font-bold shadow-lg mb-4">
-            N
-          </div>
+          <Logo size={64} rounded="rounded-2xl" className="mb-4 mx-auto" />
           <h1 className="text-2xl font-bold tracking-tight">NapChief MIS Dashboard</h1>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
             Sign in to view performance tracking
