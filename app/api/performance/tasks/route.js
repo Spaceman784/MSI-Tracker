@@ -22,7 +22,7 @@ export async function GET(req) {
   for (;;) {
     const { data, error } = await sb
       .from("mis_tasks")
-      .select("gid,name,due_on,completed,completed_at,original_due_on,projects,section,sections")
+      .select("gid,name,due_on,completed,completed_at,original_due_on,projects,section,sections,one_time_section")
       .eq("assignee", assignee)
       .eq("is_one_time", true)
       .order("due_on", { ascending: true, nullsFirst: false })

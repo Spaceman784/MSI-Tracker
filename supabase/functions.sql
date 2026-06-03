@@ -87,6 +87,7 @@ $$;
 
 -- ---- Performance: one-time task timeliness per person (always-negative score) ----
 alter table mis_tasks add column if not exists original_due_on date;
+alter table mis_tasks add column if not exists one_time_section text;
 
 create or replace function mis_performance() returns jsonb language sql stable as $$
   with p as (

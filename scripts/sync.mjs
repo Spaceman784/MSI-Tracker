@@ -46,6 +46,15 @@ function isOneTime(assignee, projects) {
   if (override) return projs.some((p) => override.includes(p));
   return projs.some((p) => /one[ -]?time/.test(p));
 }
+// The section a task sits in WITHIN its one-time board (exact Asana section).
+function oneTimeSection(assignee, memberships) {
+  const override = ONE_TIME_OVERRIDES[norm(assignee)];
+  for (const m of memberships || []) {
+    const pn = norm(m.project);
+    if (override ? override.includes(pn) : /one[ -]?time/.test(pn)) return m.section || null;
+  }
+  return null;
+}
 // -----------------------------------------------------------------
 
 // Tasks are already unique per gid (fetchWorkspaceData groups multi-homed
@@ -67,6 +76,7 @@ for (const t of d.tasks) {
       created_at: t.created_at,
       due_on: t.due_on,
       is_one_time: isOneTime(t.assignee, t.projects || (t.project ? [t.project] : [])),
+      one_time_section: oneTimeSection(t.assignee, t.memberships),
       synced_at: runStart,
     });
   }
@@ -100,6 +110,13 @@ if (odProbe.error && /original_due_on/i.test(odProbe.error.message)) {
   }
   for (const r of rows) r.original_due_on = existing.get(r.gid) || r.due_on;
   console.log(`→ revision baselines: ${existing.size} preserved, ${rows.length - existing.size} new`);
+}
+
+// one_time_section column (exact section from the one-time board) — resilient if missing
+const otsProbe = await sb.from("mis_tasks").select("one_time_section").limit(1);
+if (otsProbe.error && /one_time_section/i.test(otsProbe.error.message)) {
+  console.log("ℹ 'one_time_section' column not found — run the SQL to enable exact section grouping.");
+  for (const r of rows) delete r.one_time_section;
 }
 
 const CHUNK = 500;

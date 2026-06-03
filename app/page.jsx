@@ -742,7 +742,8 @@ function PerformancePersonDrawer({ person, tasks, onClose, onSelectTask }) {
   // group tasks by their Asana section
   const groups = {};
   (tasks || []).forEach((t) => {
-    const sec = (t.sections && t.sections[0]) || t.section || "No section";
+    // exact section from the person's one-time board; fall back if not synced yet
+    const sec = t.one_time_section || (t.sections && t.sections[0]) || t.section || "No section";
     (groups[sec] = groups[sec] || []).push(t);
   });
   const sectionNames = Object.keys(groups).sort((a, b) => groups[b].length - groups[a].length);
