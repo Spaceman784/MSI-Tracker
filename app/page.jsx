@@ -733,6 +733,10 @@ function classifyTask(t, today) {
 }
 
 function PerformancePersonDrawer({ person, tasks, onClose, onSelectTask }) {
+  const [collapsed, setCollapsed] = useState({});
+  useEffect(() => {
+    setCollapsed({});
+  }, [person ? person.assignee : null]);
   if (!person) return null;
   const today = new Date().toISOString().slice(0, 10);
   // group tasks by their Asana section
@@ -782,12 +786,17 @@ function PerformancePersonDrawer({ person, tasks, onClose, onSelectTask }) {
               <tbody>
                 {sectionNames.map((sec) => (
                   <Fragment key={sec}>
-                    <tr className="bg-gray-50 dark:bg-[#0f0f0f]">
+                    <tr
+                      className="bg-gray-50 dark:bg-[#0f0f0f] cursor-pointer select-none"
+                      onClick={() => setCollapsed((c) => ({ ...c, [sec]: !c[sec] }))}
+                    >
                       <td colSpan={5} className="py-2 px-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
-                        {sec} <span className="text-gray-400">({groups[sec].length})</span>
+                        <span className="inline-block w-3 text-gray-400">{collapsed[sec] ? "▸" : "▾"}</span> {sec}{" "}
+                        <span className="text-gray-400">({groups[sec].length})</span>
                       </td>
                     </tr>
-                    {groups[sec].map((t) => {
+                    {!collapsed[sec] &&
+                      groups[sec].map((t) => {
                       const c = classifyTask(t, today);
                       const revised =
                         t.original_due_on && t.due_on && Math.abs(daysBetween(t.original_due_on, t.due_on)) > 7;
