@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { StatusDonut, PerAssigneeBar, PerProjectBar } from "@/components/Charts";
 
@@ -735,6 +735,13 @@ function classifyTask(t, today) {
 function PerformancePersonDrawer({ person, tasks, onClose, onSelectTask }) {
   if (!person) return null;
   const today = new Date().toISOString().slice(0, 10);
+  // group tasks by their Asana section
+  const groups = {};
+  (tasks || []).forEach((t) => {
+    const sec = (t.sections && t.sections[0]) || t.section || "No section";
+    (groups[sec] = groups[sec] || []).push(t);
+  });
+  const sectionNames = Object.keys(groups).sort((a, b) => groups[b].length - groups[a].length);
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
@@ -773,33 +780,42 @@ function PerformancePersonDrawer({ person, tasks, onClose, onSelectTask }) {
                 </tr>
               </thead>
               <tbody>
-                {tasks.map((t) => {
-                  const c = classifyTask(t, today);
-                  const revised =
-                    t.original_due_on && t.due_on && Math.abs(daysBetween(t.original_due_on, t.due_on)) > 7;
-                  return (
-                    <tr
-                      key={t.gid}
-                      onClick={() => onSelectTask && onSelectTask(t.gid)}
-                      className="border-b border-gray-100 dark:border-gray-900 hover:bg-indigo-50 dark:hover:bg-[#1a1a1a] cursor-pointer"
-                    >
-                      <td className="py-2 px-2 max-w-xs truncate" title={t.name}>{t.name}</td>
-                      <td className="py-2 px-2 text-gray-500">{t.due_on || "—"}</td>
-                      <td className="py-2 px-2 text-gray-500">{t.completed_at ? t.completed_at.slice(0, 10) : "—"}</td>
-                      <td className="py-2 px-2">
-                        <span className={`inline-block px-2 py-0.5 rounded-md text-xs font-semibold ${c.cls}`}>{c.label}</span>
-                        {c.days && <span className="ml-1.5 text-xs text-gray-400">{c.days}</span>}
-                      </td>
-                      <td className="py-2 px-2">
-                        {revised ? (
-                          <span className="px-2 py-0.5 rounded-md text-xs font-semibold bg-orange-100 text-orange-700 dark:bg-orange-950/50 dark:text-orange-400">🔁 Revised</span>
-                        ) : (
-                          <span className="text-gray-300 dark:text-gray-700">—</span>
-                        )}
+                {sectionNames.map((sec) => (
+                  <Fragment key={sec}>
+                    <tr className="bg-gray-50 dark:bg-[#0f0f0f]">
+                      <td colSpan={5} className="py-2 px-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                        {sec} <span className="text-gray-400">({groups[sec].length})</span>
                       </td>
                     </tr>
-                  );
-                })}
+                    {groups[sec].map((t) => {
+                      const c = classifyTask(t, today);
+                      const revised =
+                        t.original_due_on && t.due_on && Math.abs(daysBetween(t.original_due_on, t.due_on)) > 7;
+                      return (
+                        <tr
+                          key={t.gid}
+                          onClick={() => onSelectTask && onSelectTask(t.gid)}
+                          className="border-b border-gray-100 dark:border-gray-900 hover:bg-indigo-50 dark:hover:bg-[#1a1a1a] cursor-pointer"
+                        >
+                          <td className="py-2 px-2 max-w-xs truncate" title={t.name}>{t.name}</td>
+                          <td className="py-2 px-2 text-gray-500">{t.due_on || "—"}</td>
+                          <td className="py-2 px-2 text-gray-500">{t.completed_at ? t.completed_at.slice(0, 10) : "—"}</td>
+                          <td className="py-2 px-2">
+                            <span className={`inline-block px-2 py-0.5 rounded-md text-xs font-semibold ${c.cls}`}>{c.label}</span>
+                            {c.days && <span className="ml-1.5 text-xs text-gray-400">{c.days}</span>}
+                          </td>
+                          <td className="py-2 px-2">
+                            {revised ? (
+                              <span className="px-2 py-0.5 rounded-md text-xs font-semibold bg-orange-100 text-orange-700 dark:bg-orange-950/50 dark:text-orange-400">🔁 Revised</span>
+                            ) : (
+                              <span className="text-gray-300 dark:text-gray-700">—</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </Fragment>
+                ))}
               </tbody>
             </table>
           </div>
