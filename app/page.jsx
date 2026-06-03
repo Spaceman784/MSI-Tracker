@@ -348,7 +348,7 @@ export default function Dashboard() {
 
             {tab === "Team" && (
               <div className="space-y-4">
-                <PerAssigneeBar rows={perAssignee} />
+                <PerAssigneeBar rows={perAssignee} dark={dark} />
                 <AssigneeTable rows={perAssignee} />
               </div>
             )}
@@ -367,10 +367,10 @@ export default function Dashboard() {
 
             {tab === "Charts" && (
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <StatusDonut completed={kpis.completed} open={kpis.open - kpis.overdue} overdue={kpis.overdue} />
-                <PerProjectBar rows={perProject} />
+                <StatusDonut completed={kpis.completed} open={kpis.open - kpis.overdue} overdue={kpis.overdue} dark={dark} />
+                <PerProjectBar rows={perProject} dark={dark} />
                 <div className="lg:col-span-2">
-                  <PerAssigneeBar rows={perAssignee} />
+                  <PerAssigneeBar rows={perAssignee} dark={dark} />
                 </div>
               </div>
             )}

@@ -30,15 +30,29 @@ function ChartCard({ title, subtitle, children }) {
   );
 }
 
-const tooltipStyle = {
-  background: "rgba(20,20,20,0.95)",
-  border: "none",
-  borderRadius: 10,
-  color: "#fff",
-  fontSize: 12,
-};
+// Theme-aware text + tooltip: white text in dark mode, black in light mode.
+function tooltipProps(dark) {
+  const fg = dark ? "#f3f4f6" : "#111827";
+  return {
+    contentStyle: {
+      background: dark ? "rgba(20,20,20,0.97)" : "#ffffff",
+      border: dark ? "1px solid #2a2a2a" : "1px solid #e5e7eb",
+      borderRadius: 10,
+      fontSize: 12,
+      color: fg,
+    },
+    itemStyle: { color: fg },
+    labelStyle: { color: fg, fontWeight: 600 },
+  };
+}
+function axisTick(dark) {
+  return { fontSize: 11, fill: dark ? "#cbd5e1" : "#374151" };
+}
+function legendStyle(dark) {
+  return { fontSize: 12, color: dark ? "#e5e7eb" : "#374151" };
+}
 
-export function StatusDonut({ completed, open, overdue }) {
+export function StatusDonut({ completed, open, overdue, dark }) {
   const data = [
     { name: "Completed", value: completed },
     { name: "Open", value: open },
@@ -49,27 +63,20 @@ export function StatusDonut({ completed, open, overdue }) {
     <ChartCard title="Task Status Split" subtitle="Across the current filter">
       <ResponsiveContainer>
         <PieChart>
-          <Pie
-            data={data}
-            dataKey="value"
-            nameKey="name"
-            innerRadius={60}
-            outerRadius={95}
-            paddingAngle={3}
-          >
+          <Pie data={data} dataKey="value" nameKey="name" innerRadius={60} outerRadius={95} paddingAngle={3}>
             {data.map((d) => (
               <Cell key={d.name} fill={STATUS_COLORS[d.name]} />
             ))}
           </Pie>
-          <Tooltip contentStyle={tooltipStyle} />
-          <Legend iconType="circle" wrapperStyle={{ fontSize: 12 }} />
+          <Tooltip {...tooltipProps(dark)} />
+          <Legend iconType="circle" wrapperStyle={legendStyle(dark)} />
         </PieChart>
       </ResponsiveContainer>
     </ChartCard>
   );
 }
 
-export function PerAssigneeBar({ rows }) {
+export function PerAssigneeBar({ rows, dark }) {
   const data = rows
     .map((r) => ({ name: r.assignee, Completed: r.completed, Pending: r.pending, Overdue: r.overdue }))
     .sort((a, b) => b.Completed + b.Pending - (a.Completed + a.Pending))
@@ -80,17 +87,11 @@ export function PerAssigneeBar({ rows }) {
       <ResponsiveContainer>
         <BarChart data={data} margin={{ top: 10, right: 10, left: -10, bottom: 40 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="rgba(128,128,128,0.15)" />
-          <XAxis
-            dataKey="name"
-            angle={-30}
-            textAnchor="end"
-            height={60}
-            tick={{ fontSize: 11, fill: "currentColor" }}
-          />
-          <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "currentColor" }} />
-          <Tooltip contentStyle={tooltipStyle} cursor={{ fill: "rgba(128,128,128,0.1)" }} />
-          <Legend wrapperStyle={{ fontSize: 12 }} />
-          <Bar dataKey="Completed" stackId="a" fill="#22c55e" radius={[0, 0, 0, 0]} />
+          <XAxis dataKey="name" angle={-30} textAnchor="end" height={60} tick={axisTick(dark)} />
+          <YAxis allowDecimals={false} tick={axisTick(dark)} />
+          <Tooltip {...tooltipProps(dark)} cursor={{ fill: "rgba(128,128,128,0.1)" }} />
+          <Legend wrapperStyle={legendStyle(dark)} />
+          <Bar dataKey="Completed" stackId="a" fill="#22c55e" />
           <Bar dataKey="Pending" stackId="a" fill="#f59e0b" />
           <Bar dataKey="Overdue" stackId="a" fill="#ef4444" radius={[4, 4, 0, 0]} />
         </BarChart>
@@ -99,7 +100,7 @@ export function PerAssigneeBar({ rows }) {
   );
 }
 
-export function PerProjectBar({ rows }) {
+export function PerProjectBar({ rows, dark }) {
   const data = (rows || []).slice(0, 10);
 
   return (
@@ -107,16 +108,10 @@ export function PerProjectBar({ rows }) {
       <ResponsiveContainer>
         <BarChart data={data} margin={{ top: 10, right: 10, left: -10, bottom: 40 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="rgba(128,128,128,0.15)" />
-          <XAxis
-            dataKey="name"
-            angle={-30}
-            textAnchor="end"
-            height={60}
-            tick={{ fontSize: 11, fill: "currentColor" }}
-          />
-          <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "currentColor" }} />
-          <Tooltip contentStyle={tooltipStyle} cursor={{ fill: "rgba(128,128,128,0.1)" }} />
-          <Legend wrapperStyle={{ fontSize: 12 }} />
+          <XAxis dataKey="name" angle={-30} textAnchor="end" height={60} tick={axisTick(dark)} />
+          <YAxis allowDecimals={false} tick={axisTick(dark)} />
+          <Tooltip {...tooltipProps(dark)} cursor={{ fill: "rgba(128,128,128,0.1)" }} />
+          <Legend wrapperStyle={legendStyle(dark)} />
           <Bar dataKey="Total" fill="#6366f1" radius={[4, 4, 0, 0]} />
           <Bar dataKey="Completed" fill="#22c55e" radius={[4, 4, 0, 0]} />
         </BarChart>
