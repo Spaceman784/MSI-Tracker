@@ -82,6 +82,26 @@ if (probe.error && /is_one_time/i.test(probe.error.message)) {
   for (const r of rows) delete r.is_one_time;
 }
 
+// original_due_on: keep the FIRST-seen due date per task (for revision tracking).
+// Preserve existing originals; new tasks get their current due date as the baseline.
+const odProbe = await sb.from("mis_tasks").select("original_due_on").limit(1);
+if (odProbe.error && /original_due_on/i.test(odProbe.error.message)) {
+  console.log("ℹ 'original_due_on' column not found — skipping revision tracking. Run the SQL to enable.");
+  for (const r of rows) delete r.original_due_on;
+} else {
+  const existing = new Map();
+  let f = 0;
+  for (;;) {
+    const { data } = await sb.from("mis_tasks").select("gid,original_due_on").range(f, f + 999);
+    if (!data || data.length === 0) break;
+    for (const r of data) if (r.original_due_on) existing.set(r.gid, r.original_due_on);
+    if (data.length < 1000) break;
+    f += 1000;
+  }
+  for (const r of rows) r.original_due_on = existing.get(r.gid) || r.due_on;
+  console.log(`→ revision baselines: ${existing.size} preserved, ${rows.length - existing.size} new`);
+}
+
 const CHUNK = 500;
 for (let i = 0; i < rows.length; i += CHUNK) {
   const chunk = rows.slice(i, i + CHUNK);

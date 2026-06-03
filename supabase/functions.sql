@@ -84,3 +84,32 @@ create or replace function mis_filter_lists() returns jsonb language sql stable 
     'lastSynced',(select value from mis_meta where key = 'last_synced')
   );
 $$;
+
+-- ---- Performance: one-time task timeliness per person (always-negative score) ----
+alter table mis_tasks add column if not exists original_due_on date;
+
+create or replace function mis_performance() returns jsonb language sql stable as $$
+  with p as (
+    select assignee,
+      count(*) filter (where is_one_time) as total,
+      count(*) filter (where is_one_time and completed) as completed,
+      count(*) filter (where is_one_time and not completed) as pending,
+      count(*) filter (where is_one_time and not completed and due_on < current_date) as overdue,
+      count(*) filter (where is_one_time and completed and due_on is not null and completed_at is not null and completed_at::date <= due_on) as on_time,
+      count(*) filter (where is_one_time and completed and due_on is not null and completed_at is not null and completed_at::date >  due_on) as delayed,
+      count(*) filter (where is_one_time and completed and (due_on is null or completed_at is null)) as no_due,
+      count(*) filter (where is_one_time and original_due_on is not null and due_on is not null and abs(due_on - original_due_on) > 7) as revised,
+      coalesce(sum(current_date - due_on) filter (where is_one_time and not completed and due_on < current_date), 0) as days_overdue,
+      coalesce(sum(completed_at::date - due_on) filter (where is_one_time and completed and due_on is not null and completed_at is not null and completed_at::date > due_on), 0) as days_late
+    from mis_tasks
+    group by assignee
+    having count(*) filter (where is_one_time) > 0
+  )
+  select coalesce(jsonb_agg(jsonb_build_object(
+    'assignee', assignee, 'total', total, 'completed', completed, 'pending', pending, 'overdue', overdue,
+    'on_time', on_time, 'delayed', delayed, 'no_due', no_due, 'revised', revised,
+    'days_overdue', days_overdue, 'days_late', days_late,
+    'score', greatest(-100, coalesce(round(-100.0 * (delayed + overdue + revised) / nullif(on_time + delayed + overdue, 0)), 0))
+  ) order by greatest(-100, coalesce(round(-100.0 * (delayed + overdue + revised) / nullif(on_time + delayed + overdue, 0)), 0)) asc), '[]'::jsonb)
+  from p;
+$$;

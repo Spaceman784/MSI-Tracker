@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { StatusDonut, PerAssigneeBar, PerProjectBar } from "@/components/Charts";
 
-const TABS = ["Overview", "Team", "Tasks", "Charts", "Activity"];
+const TABS = ["Overview", "Team", "Tasks", "Charts", "Performance", "Activity"];
 
 export default function Dashboard() {
   const router = useRouter();
@@ -20,6 +20,7 @@ export default function Dashboard() {
   const [detail, setDetail] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [activity, setActivity] = useState(null);
+  const [performance, setPerformance] = useState(null);
   const [refreshTick, setRefreshTick] = useState(0);
 
   // filters
@@ -128,6 +129,21 @@ export default function Dashboard() {
       .then((r) => (r.ok ? r.json() : null))
       .then((j) => {
         if (!cancelled && j) setActivity(j);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [tab, refreshTick]);
+
+  // load the Performance scorecard when the tab is open (and on each refresh tick)
+  useEffect(() => {
+    if (tab !== "Performance") return;
+    let cancelled = false;
+    fetch("/api/performance")
+      .then((r) => r.json())
+      .then((j) => {
+        if (!cancelled) setPerformance(j);
       })
       .catch(() => {});
     return () => {
@@ -346,6 +362,8 @@ export default function Dashboard() {
                 </div>
               </div>
             )}
+
+            {tab === "Performance" && <PerformanceTable data={performance} />}
 
             {tab === "Activity" && <ActivityFeed data={activity} onSelect={setDetailGid} />}
           </>
@@ -576,6 +594,81 @@ function AssigneeTable({ rows }) {
                 <td className="py-2.5 px-2">
                   <span className={`inline-block px-2 py-1 rounded-md text-xs font-semibold ${pctBadge(r.pct)}`}>
                     {r.pct}%
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Panel>
+  );
+}
+
+function PerformanceTable({ data }) {
+  if (!data) return <Panel><p className="text-sm text-gray-500">Loading performance…</p></Panel>;
+  if (data.error) {
+    return (
+      <Panel>
+        <p className="font-semibold text-amber-600 dark:text-amber-400 mb-1">Performance not ready</p>
+        <p className="text-sm text-gray-500">{data.message || "Run the performance SQL in Supabase."}</p>
+      </Panel>
+    );
+  }
+  const rows = data.rows || [];
+  return (
+    <Panel>
+      <h2 className="font-semibold text-sm mb-1">Performance scorecard — One-Time tasks</h2>
+      <p className="text-xs text-gray-400 mb-3">
+        Score is a penalty: <span className="font-semibold">0% = perfect</span> (all on time), and it goes more negative
+        with delays, overdue, and date-revisions. Worst first.
+      </p>
+      <div className="overflow-x-auto max-h-[75vh]">
+        <table className="w-full text-sm">
+          <thead className="sticky top-0 bg-white dark:bg-[#141414]">
+            <tr className="text-left text-xs uppercase tracking-wide text-gray-400 border-b border-gray-200 dark:border-gray-800">
+              <th className="py-2.5 px-2">Assignee</th>
+              <th className="py-2.5 px-2">One-Time</th>
+              <th className="py-2.5 px-2">Done</th>
+              <th className="py-2.5 px-2">Pending</th>
+              <th className="py-2.5 px-2">Overdue</th>
+              <th className="py-2.5 px-2">On-time</th>
+              <th className="py-2.5 px-2">Delayed</th>
+              <th className="py-2.5 px-2">Revised</th>
+              <th className="py-2.5 px-2">No due</th>
+              <th className="py-2.5 px-2">Score</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.length === 0 && (
+              <tr><td colSpan={10} className="py-6 text-center text-gray-400">No one-time tasks found.</td></tr>
+            )}
+            {rows.map((r) => (
+              <tr key={r.assignee} className="border-b border-gray-100 dark:border-gray-900 hover:bg-gray-50 dark:hover:bg-[#1a1a1a]">
+                <td className="py-2.5 px-2 font-medium">{r.assignee}</td>
+                <td className="py-2.5 px-2">{r.total}</td>
+                <td className="py-2.5 px-2 text-green-600 dark:text-green-400">{r.completed}</td>
+                <td className="py-2.5 px-2 text-amber-600 dark:text-amber-400">{r.pending}</td>
+                <td className="py-2.5 px-2 text-red-600 dark:text-red-400">
+                  {r.overdue}
+                  {r.days_overdue ? <span className="text-xs text-gray-400"> · {r.days_overdue}d</span> : null}
+                </td>
+                <td className="py-2.5 px-2 text-green-600 dark:text-green-400">{r.on_time}</td>
+                <td className="py-2.5 px-2 text-red-600 dark:text-red-400">
+                  {r.delayed}
+                  {r.days_late ? <span className="text-xs text-gray-400"> · {r.days_late}d</span> : null}
+                </td>
+                <td className="py-2.5 px-2 text-orange-600 dark:text-orange-400">{r.revised}</td>
+                <td className="py-2.5 px-2 text-gray-400">{r.no_due}</td>
+                <td className="py-2.5 px-2">
+                  <span
+                    className={`inline-block px-2 py-1 rounded-md text-xs font-semibold ${
+                      r.score < 0
+                        ? "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-400"
+                        : "bg-green-100 text-green-700 dark:bg-green-950/50 dark:text-green-400"
+                    }`}
+                  >
+                    {r.score}%
                   </span>
                 </td>
               </tr>
