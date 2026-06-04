@@ -23,6 +23,7 @@ export default function Dashboard() {
   const [activity, setActivity] = useState(null);
   const [performance, setPerformance] = useState(null);
   const [daily, setDaily] = useState(null);
+  const [recurring, setRecurring] = useState(null);
   const [perfPerson, setPerfPerson] = useState(null);
   const [perfTasks, setPerfTasks] = useState(null);
   const [refreshTick, setRefreshTick] = useState(0);
@@ -160,6 +161,7 @@ export default function Dashboard() {
     if (tab !== "Daily") return;
     let cancelled = false;
     setDaily(null);
+    setRecurring(null);
     fetch("/api/daily")
       .then((r) => r.json())
       .then((j) => {
@@ -167,6 +169,14 @@ export default function Dashboard() {
       })
       .catch((e) => {
         if (!cancelled) setDaily({ error: "DB_ERROR", message: String(e) });
+      });
+    fetch("/api/recurring")
+      .then((r) => r.json())
+      .then((j) => {
+        if (!cancelled) setRecurring(j);
+      })
+      .catch((e) => {
+        if (!cancelled) setRecurring({ error: "DB_ERROR", message: String(e) });
       });
     return () => {
       cancelled = true;
@@ -395,7 +405,13 @@ export default function Dashboard() {
 
             {tab === "Performance" && <PerformanceTable data={performance} onSelect={setPerfPerson} />}
 
-            {tab === "Daily" && <DailyScorecard data={daily} />}
+            {tab === "Daily" && (
+              <div className="space-y-5">
+                <DailyScorecard data={daily} />
+                <RecurringScorecard kind="weekly" title="Weekly to-do scorecard" recurring={recurring} />
+                <RecurringScorecard kind="monthly" title="Monthly to-do scorecard" recurring={recurring} />
+              </div>
+            )}
 
             {tab === "Activity" && <ActivityFeed data={activity} onSelect={setDetailGid} />}
           </>
@@ -846,6 +862,152 @@ function DailyScorecard({ data }) {
                         </tr>
                       );
                     })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </Panel>
+  );
+}
+
+function RecurringScorecard({ kind, title, recurring }) {
+  const [q, setQ] = useState("");
+  if (!recurring) {
+    return (
+      <Panel>
+        <p className="text-sm text-gray-500">Loading {kind} tracker…</p>
+      </Panel>
+    );
+  }
+  if (recurring.error) {
+    return (
+      <Panel>
+        <p className="font-semibold text-amber-600 dark:text-amber-400 mb-1">{title} — not ready</p>
+        <p className="text-sm text-gray-500">{recurring.message || "Run supabase/recurring.sql, then sync."}</p>
+      </Panel>
+    );
+  }
+  const data = recurring[kind] || { periods: [], rows: [] };
+  const periods = data.periods || [];
+  const rows = data.rows || [];
+  const unit = kind === "weekly" ? "week" : "month";
+
+  const s = q.trim().toLowerCase();
+  const filtered = s
+    ? rows.filter((r) => (r.person || "").toLowerCase().includes(s) || (r.task || "").toLowerCase().includes(s))
+    : rows;
+
+  const byPerson = {};
+  for (const r of filtered) (byPerson[r.person] = byPerson[r.person] || []).push(r);
+  const people = Object.keys(byPerson).sort((a, b) => a.localeCompare(b));
+
+  const cellCls = (v) =>
+    v === "on_time"
+      ? "bg-green-100 text-green-700 dark:bg-green-950/50 dark:text-green-400"
+      : v === "missed"
+      ? "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-400"
+      : "bg-gray-100 text-gray-400 dark:bg-gray-800 dark:text-gray-600";
+  const glyph = (v) => (v === "on_time" ? "✓" : v === "missed" ? "✗" : "·");
+
+  return (
+    <Panel>
+      <h2 className="font-semibold text-sm mb-1">
+        {title} — on time vs missed (last {periods.length} {unit}s)
+      </h2>
+      <p className="text-xs text-gray-400 mb-3">
+        Ticked on or before its due date = ✓ on time · missed (or done late) = ✗ · not due yet = grey.{" "}
+        {recurring.lastSynced ? `Last sync ${new Date(recurring.lastSynced).toLocaleString()}.` : ""}
+      </p>
+      <input
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+        placeholder="Search person or task…"
+        className="filter-input mb-3 max-w-xs"
+      />
+      {people.length === 0 && (
+        <p className="py-6 text-center text-gray-400">
+          No {kind} tasks found. Run the recurring sync, and make sure tasks in each To-Do board's {unit.toUpperCase()}LY
+          section are assigned in Asana.
+        </p>
+      )}
+      <div className="space-y-5">
+        {people.map((person) => {
+          const tasks = byPerson[person];
+          const totalDone = tasks.reduce((a, t) => a + (t.done || 0), 0);
+          const totalCells = tasks.reduce((a, t) => a + (t.has_due ? periods.length : 0), 0);
+          return (
+            <div key={person}>
+              <div className="flex items-center gap-2 mb-1.5">
+                <span className="w-7 h-7 rounded-full bg-indigo-100 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-300 flex items-center justify-center text-xs font-semibold">
+                  {initials(person)}
+                </span>
+                <span className="font-medium text-sm">{person}</span>
+                <span className="text-xs text-gray-400">
+                  {tasks.length} {kind} task{tasks.length > 1 ? "s" : ""} · {totalDone}/{totalCells} on time
+                </span>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-[11px] uppercase tracking-wide text-gray-400 border-b border-gray-200 dark:border-gray-800">
+                      <th className="py-1.5 px-2 capitalize">{kind} task</th>
+                      {periods.map((p) => (
+                        <th key={p} className="py-1.5 px-1 text-center w-14">
+                          {p}
+                        </th>
+                      ))}
+                      <th className="py-1.5 px-2 text-center">On time</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {tasks.map((t) => (
+                      <tr key={t.task_gid} className="border-b border-gray-100 dark:border-gray-900">
+                        <td className="py-1.5 px-2">
+                          {t.task}
+                          {!t.has_due && (
+                            <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400">
+                              no due date
+                            </span>
+                          )}
+                        </td>
+                        {t.has_due ? (
+                          t.cells.map((v, i) => (
+                            <td key={i} className="py-1.5 px-1 text-center">
+                              <span
+                                className={`inline-flex items-center justify-center w-6 h-6 rounded-md text-xs font-bold ${cellCls(v)}`}
+                                title={periods[i]}
+                              >
+                                {glyph(v)}
+                              </span>
+                            </td>
+                          ))
+                        ) : (
+                          <td className="py-1.5 px-1 text-center text-gray-400" colSpan={periods.length}>
+                            —
+                          </td>
+                        )}
+                        <td className="py-1.5 px-2 text-center">
+                          {t.has_due ? (
+                            <span
+                              className={`inline-block px-2 py-1 rounded-md text-xs font-semibold ${
+                                t.done >= periods.length
+                                  ? pctBadge(100)
+                                  : t.done >= Math.ceil(periods.length / 2)
+                                  ? pctBadge(60)
+                                  : pctBadge(0)
+                              }`}
+                            >
+                              {t.done}/{periods.length}
+                            </span>
+                          ) : (
+                            <span className="text-gray-400 text-xs">—</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>

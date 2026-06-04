@@ -179,4 +179,15 @@ try {
   console.error("⚠ daily-completions step skipped:", e.message);
 }
 
+// ---- Weekly / Monthly recurring to-do tracking (additive, fully guarded) ----
+// Reads each "To do" board's WEEKLY + MONTHLY sections. Independent of the
+// daily step; if it fails (or tables aren't created yet), it never breaks sync.
+try {
+  const { syncRecurring } = await import("../lib/recurring.js");
+  console.log("→ Syncing weekly/monthly recurring to-dos…");
+  await syncRecurring(sb, token, process.env.ASANA_WORKSPACE_GID || "", { log: console.log });
+} catch (e) {
+  console.error("⚠ recurring step skipped:", e.message);
+}
+
 console.log(`✅ Sync complete in ${((Date.now() - t0) / 1000).toFixed(0)}s. Last synced: ${runStart}`);
