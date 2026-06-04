@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { StatusDonut, PerAssigneeBar, PerProjectBar } from "@/components/Charts";
 import Logo from "@/components/Logo";
 
-const TABS = ["Overview", "Team", "Tasks", "Charts", "Performance", "Daily", "Activity"];
+const TABS = ["Overview", "Team", "Tasks", "Charts", "Performance", "Daily / Weekly / Monthly", "Activity"];
 
 export default function Dashboard() {
   const router = useRouter();
@@ -158,7 +158,7 @@ export default function Dashboard() {
 
   // load the Daily to-do scorecard when the tab is open (and on each refresh tick)
   useEffect(() => {
-    if (tab !== "Daily") return;
+    if (tab !== "Daily / Weekly / Monthly") return;
     let cancelled = false;
     setDaily(null);
     setRecurring(null);
@@ -405,7 +405,7 @@ export default function Dashboard() {
 
             {tab === "Performance" && <PerformanceTable data={performance} onSelect={setPerfPerson} />}
 
-            {tab === "Daily" && (
+            {tab === "Daily / Weekly / Monthly" && (
               <div className="space-y-5">
                 <DailyScorecard data={daily} />
                 <RecurringScorecard kind="weekly" title="Weekly to-do scorecard" recurring={recurring} />
@@ -753,6 +753,7 @@ function PerformanceTable({ data, onSelect }) {
 
 function DailyScorecard({ data }) {
   const [q, setQ] = useState("");
+  const [open, setOpen] = useState(true);
   if (!data) return <Panel><p className="text-sm text-gray-500">Loading daily tracker…</p></Panel>;
   if (data.error) {
     return (
@@ -785,7 +786,12 @@ function DailyScorecard({ data }) {
 
   return (
     <Panel>
-      <h2 className="font-semibold text-sm mb-1">Daily to-do scorecard — target 6/week (Mon–Sat)</h2>
+      <div onClick={() => setOpen((o) => !o)} className="flex items-center gap-2 cursor-pointer select-none mb-1">
+        <span className="text-gray-400 text-xs w-3 inline-block">{open ? "▾" : "▸"}</span>
+        <h2 className="font-semibold text-sm">Daily to-do scorecard — target 6/week (Mon–Sat)</h2>
+      </div>
+      {open && (
+        <>
       <p className="text-xs text-gray-400 mb-3">
         Each daily task should be ticked once per working day. ✓ = done · ✗ = missed · grey = upcoming.{" "}
         {data.from && data.to ? `Week ${data.from} → ${data.to} (IST).` : ""}{" "}
@@ -869,12 +875,15 @@ function DailyScorecard({ data }) {
           );
         })}
       </div>
+        </>
+      )}
     </Panel>
   );
 }
 
-function RecurringScorecard({ kind, title, recurring }) {
+function RecurringScorecard({ kind, title, recurring, defaultOpen = false }) {
   const [q, setQ] = useState("");
+  const [open, setOpen] = useState(defaultOpen);
   if (!recurring) {
     return (
       <Panel>
@@ -914,9 +923,14 @@ function RecurringScorecard({ kind, title, recurring }) {
 
   return (
     <Panel>
-      <h2 className="font-semibold text-sm mb-1">
-        {title} — on time vs missed (last {periods.length} {unit}s)
-      </h2>
+      <div onClick={() => setOpen((o) => !o)} className="flex items-center gap-2 cursor-pointer select-none mb-1">
+        <span className="text-gray-400 text-xs w-3 inline-block">{open ? "▾" : "▸"}</span>
+        <h2 className="font-semibold text-sm">
+          {title} — on time vs missed (last {periods.length} {unit}s)
+        </h2>
+      </div>
+      {open && (
+        <>
       <p className="text-xs text-gray-400 mb-3">
         Ticked on or before its due date = ✓ on time · missed (or done late) = ✗ · not due yet = grey.{" "}
         {recurring.lastSynced ? `Last sync ${new Date(recurring.lastSynced).toLocaleString()}.` : ""}
@@ -1015,6 +1029,8 @@ function RecurringScorecard({ kind, title, recurring }) {
           );
         })}
       </div>
+        </>
+      )}
     </Panel>
   );
 }
