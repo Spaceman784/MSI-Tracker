@@ -110,7 +110,7 @@ export default function Dashboard() {
     queryRef.current = query;
   }, [query]);
   useEffect(() => {
-    const id = setInterval(() => setRefreshTick((t) => t + 1), 60000);
+    const id = setInterval(() => setRefreshTick((t) => t + 1), 60 * 60 * 1000); // auto-refresh hourly
     return () => clearInterval(id);
   }, []);
   useEffect(() => {
