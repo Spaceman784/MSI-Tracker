@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { StatusDonut, PerAssigneeBar, PerProjectBar } from "@/components/Charts";
 import Logo from "@/components/Logo";
 
-const TABS = ["Overview", "Team", "Tasks", "Charts", "Performance", "Daily / Weekly / Monthly", "Activity"];
+const TABS = ["Overview", "Team", "Tasks", "Charts", "One Time Tasks", "To-Do Tasks", "Activity"];
 
 export default function Dashboard() {
   const router = useRouter();
@@ -143,9 +143,12 @@ export default function Dashboard() {
 
   // load the Performance scorecard when the tab is open (and on each refresh tick)
   useEffect(() => {
-    if (tab !== "Performance") return;
+    if (tab !== "One Time Tasks") return;
     let cancelled = false;
-    fetch("/api/performance")
+    const p = new URLSearchParams();
+    if (dateFrom) p.set("from", dateFrom);
+    if (dateTo) p.set("to", dateTo);
+    fetch(`/api/performance?${p.toString()}`)
       .then((r) => r.json())
       .then((j) => {
         if (!cancelled) setPerformance(j);
@@ -154,11 +157,11 @@ export default function Dashboard() {
     return () => {
       cancelled = true;
     };
-  }, [tab, refreshTick]);
+  }, [tab, refreshTick, dateFrom, dateTo]);
 
   // load the Daily to-do scorecard when the tab is open (and on each refresh tick)
   useEffect(() => {
-    if (tab !== "Daily / Weekly / Monthly") return;
+    if (tab !== "To-Do Tasks") return;
     let cancelled = false;
     setDaily(null);
     setRecurring(null);
@@ -184,14 +187,18 @@ export default function Dashboard() {
   }, [tab, refreshTick]);
 
   // load a person's one-time tasks for the Performance drill-down
+  // (respects the Calendar = ADDED/CREATED date window too)
   useEffect(() => {
     if (!perfPerson) return;
     setPerfTasks(null);
-    fetch(`/api/performance/tasks?assignee=${encodeURIComponent(perfPerson.assignee)}`)
+    const p = new URLSearchParams({ assignee: perfPerson.assignee });
+    if (dateFrom) p.set("from", dateFrom);
+    if (dateTo) p.set("to", dateTo);
+    fetch(`/api/performance/tasks?${p.toString()}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((j) => setPerfTasks(j ? j.tasks : []))
       .catch(() => setPerfTasks([]));
-  }, [perfPerson]);
+  }, [perfPerson, dateFrom, dateTo]);
 
   function toggleTheme() {
     const next = !dark;
@@ -297,7 +304,7 @@ export default function Dashboard() {
             <SearchableSelect label="Section" value={fSection} onChange={setFSection} options={lists.sections} />
             <Select label="Status" value={fStatus} onChange={setFStatus} options={["All", "Open", "Completed", "Overdue"]} />
             <div className="col-span-2 md:col-span-1">
-              <label className="filter-label">Due date (calendar)</label>
+              <label className="filter-label">Calendar</label>
               <div className="flex flex-col gap-1.5 min-w-0">
                 <input
                   type="date"
@@ -403,9 +410,9 @@ export default function Dashboard() {
               </div>
             )}
 
-            {tab === "Performance" && <PerformanceTable data={performance} onSelect={setPerfPerson} />}
+            {tab === "One Time Tasks" && <PerformanceTable data={performance} onSelect={setPerfPerson} />}
 
-            {tab === "Daily / Weekly / Monthly" && (
+            {tab === "To-Do Tasks" && (
               <div className="space-y-5">
                 <DailyScorecard data={daily} />
                 <RecurringScorecard kind="weekly" title="Weekly to-do scorecard" recurring={recurring} />
@@ -1098,6 +1105,7 @@ function PerformancePersonDrawer({ person, tasks, onClose, onSelectTask }) {
               <thead>
                 <tr className="text-left text-xs uppercase tracking-wide text-gray-400 border-b border-gray-200 dark:border-gray-800">
                   <th className="py-2 px-2">Task</th>
+                  <th className="py-2 px-2">Added</th>
                   <th className="py-2 px-2">Due</th>
                   <th className="py-2 px-2">Completed</th>
                   <th className="py-2 px-2">Status</th>
@@ -1111,7 +1119,7 @@ function PerformancePersonDrawer({ person, tasks, onClose, onSelectTask }) {
                       className="bg-gray-50 dark:bg-[#0f0f0f] cursor-pointer select-none"
                       onClick={() => setCollapsed((c) => ({ ...c, [sec]: !c[sec] }))}
                     >
-                      <td colSpan={5} className="py-2 px-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                      <td colSpan={6} className="py-2 px-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
                         <span className="inline-block w-3 text-gray-400">{collapsed[sec] ? "▸" : "▾"}</span> {sec}{" "}
                         <span className="text-gray-400">({groups[sec].length})</span>
                       </td>
@@ -1128,6 +1136,7 @@ function PerformancePersonDrawer({ person, tasks, onClose, onSelectTask }) {
                           className="border-b border-gray-100 dark:border-gray-900 hover:bg-indigo-50 dark:hover:bg-[#1a1a1a] cursor-pointer"
                         >
                           <td className="py-2 px-2 max-w-xs truncate" title={t.name}>{t.name}</td>
+                          <td className="py-2 px-2 text-gray-500">{t.created_at ? t.created_at.slice(0, 10) : "—"}</td>
                           <td className="py-2 px-2 text-gray-500">{t.due_on || "—"}</td>
                           <td className="py-2 px-2 text-gray-500">{t.completed_at ? t.completed_at.slice(0, 10) : "—"}</td>
                           <td className="py-2 px-2">

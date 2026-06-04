@@ -5,7 +5,7 @@ import { getSupabase } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(req) {
   const session = cookies().get(SESSION_COOKIE);
   if (!session || !verifySession(session.value)) {
     return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
@@ -13,7 +13,11 @@ export async function GET() {
   const sb = getSupabase();
   if (!sb) return NextResponse.json({ error: "NO_SUPABASE" }, { status: 400 });
 
-  const { data, error } = await sb.rpc("mis_performance");
+  const sp = new URL(req.url).searchParams;
+  const { data, error } = await sb.rpc("mis_performance", {
+    p_from: sp.get("from") || null,
+    p_to: sp.get("to") || null,
+  });
   if (error) {
     const missing = /mis_performance|original_due_on/.test(error.message);
     return NextResponse.json(

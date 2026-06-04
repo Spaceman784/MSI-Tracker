@@ -28,8 +28,8 @@ create or replace function mis_summary(
            or (p_status = 'Completed' and t.completed)
            or (p_status = 'Open'      and not t.completed)
            or (p_status = 'Overdue'   and not t.completed and t.due_on < current_date))
-      and (p_from   is null or t.due_on >= p_from)
-      and (p_to     is null or t.due_on <= p_to)
+      and (p_from   is null or (t.created_at at time zone 'Asia/Kolkata')::date >= p_from)
+      and (p_to     is null or (t.created_at at time zone 'Asia/Kolkata')::date <= p_to)
       and (p_search is null or t.name ilike '%'||p_search||'%' or t.assignee ilike '%'||p_search||'%')
   )
   select jsonb_build_object(
@@ -89,7 +89,11 @@ $$;
 alter table mis_tasks add column if not exists original_due_on date;
 alter table mis_tasks add column if not exists one_time_section text;
 
-create or replace function mis_performance() returns jsonb language sql stable as $$
+-- Optional ADDED/CREATED-date window (p_from / p_to). Both null => counts ALL
+-- tasks (identical to before). When set => only tasks ADDED in [p_from, p_to]
+-- (created_at, by IST day). The one-time scoring logic is unchanged.
+drop function if exists mis_performance();
+create or replace function mis_performance(p_from date default null, p_to date default null) returns jsonb language sql stable as $$
   with p as (
     select assignee,
       count(*) filter (where is_one_time) as total,
@@ -103,6 +107,8 @@ create or replace function mis_performance() returns jsonb language sql stable a
       coalesce(sum(current_date - due_on) filter (where is_one_time and not completed and due_on < current_date), 0) as days_overdue,
       coalesce(sum(completed_at::date - due_on) filter (where is_one_time and completed and due_on is not null and completed_at is not null and completed_at::date > due_on), 0) as days_late
     from mis_tasks
+    where (p_from is null or (created_at at time zone 'Asia/Kolkata')::date >= p_from)
+      and (p_to   is null or (created_at at time zone 'Asia/Kolkata')::date <= p_to)
     group by assignee
     having count(*) filter (where is_one_time) > 0
   )
