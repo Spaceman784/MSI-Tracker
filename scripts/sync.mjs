@@ -55,6 +55,28 @@ function oneTimeSection(assignee, memberships) {
   }
   return null;
 }
+
+// The section a task sits in WITHIN the assignee's OWN board (board named after
+// the person — e.g. "Dipti's To-Do Board"). Ignores shared/team boards like
+// "Inventory's TO-DO Board". Prefers the To-Do board, then one-time, then any.
+const OWN_BOARD_OVERRIDES = {
+  "vallabh sumanth": ["sumanth"], // his boards are named "Sumanth ..."
+};
+function ownSection(assignee, memberships) {
+  const ov = OWN_BOARD_OVERRIDES[norm(assignee)];
+  const tokens = ov || norm(assignee).split(/\s+/).filter((t) => t.length > 2);
+  const owns = (board) => {
+    const bn = norm(board);
+    return tokens.some((t) => bn.includes(t));
+  };
+  const owned = (memberships || []).filter((m) => owns(m.project));
+  if (!owned.length) return null;
+  const todo = owned.find((m) => /to-?do/i.test(m.project));
+  if (todo) return todo.section || null;
+  const ot = owned.find((m) => /one[ -]?time/i.test(m.project));
+  if (ot) return ot.section || null;
+  return owned[0].section || null;
+}
 // -----------------------------------------------------------------
 
 // Tasks are already unique per gid (fetchWorkspaceData groups multi-homed
@@ -77,6 +99,7 @@ for (const t of d.tasks) {
       due_on: t.due_on,
       is_one_time: isOneTime(t.assignee, t.projects || (t.project ? [t.project] : [])),
       one_time_section: oneTimeSection(t.assignee, t.memberships),
+      own_section: ownSection(t.assignee, t.memberships),
       synced_at: runStart,
     });
   }
@@ -117,6 +140,13 @@ const otsProbe = await sb.from("mis_tasks").select("one_time_section").limit(1);
 if (otsProbe.error && /one_time_section/i.test(otsProbe.error.message)) {
   console.log("ℹ 'one_time_section' column not found — run the SQL to enable exact section grouping.");
   for (const r of rows) delete r.one_time_section;
+}
+
+// own_section column (section from the assignee's OWN board) — resilient if missing
+const ownProbe = await sb.from("mis_tasks").select("own_section").limit(1);
+if (ownProbe.error && /own_section/i.test(ownProbe.error.message)) {
+  console.log("ℹ 'own_section' column not found — run the SQL to enable own-board section filtering.");
+  for (const r of rows) delete r.own_section;
 }
 
 const CHUNK = 500;

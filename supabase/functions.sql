@@ -9,6 +9,11 @@
 create index if not exists idx_mis_tasks_projects_gin on mis_tasks using gin (projects);
 create index if not exists idx_mis_tasks_sections_gin on mis_tasks using gin (sections);
 
+-- Section from the assignee's OWN board (so a person's sections aren't borrowed
+-- from shared boards). Populated by the sync.
+alter table mis_tasks add column if not exists own_section text;
+create index if not exists idx_mis_tasks_own_section on mis_tasks (own_section);
+
 -- ---- Aggregates: KPIs + per-assignee + per-project (with filters) ----
 create or replace function mis_summary(
   p_assignee text default null,
@@ -23,7 +28,7 @@ create or replace function mis_summary(
     select * from mis_tasks t
     where (p_assignee is null or t.assignee = p_assignee)
       and (p_project  is null or coalesce(t.projects, '[]'::jsonb) ? p_project)
-      and (p_section  is null or coalesce(t.sections, '[]'::jsonb) ? p_section)
+      and (p_section  is null or t.own_section = p_section)
       and (p_status   is null
            or (p_status = 'Completed' and t.completed)
            or (p_status = 'Open'      and not t.completed)
@@ -79,7 +84,7 @@ create or replace function mis_filter_lists() returns jsonb language sql stable 
     'projects',  (select coalesce(jsonb_agg(p order by p), '[]'::jsonb)
                   from (select distinct jsonb_array_elements_text(coalesce(projects, '[]'::jsonb)) p from mis_tasks) x),
     'sections',  (select coalesce(jsonb_agg(s order by s), '[]'::jsonb)
-                  from (select distinct jsonb_array_elements_text(coalesce(sections, '[]'::jsonb)) s from mis_tasks) x),
+                  from (select distinct own_section s from mis_tasks where own_section is not null) x),
     'taskCount', (select count(*) from mis_tasks),
     'lastSynced',(select value from mis_meta where key = 'last_synced')
   );

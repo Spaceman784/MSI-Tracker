@@ -37,6 +37,7 @@ alter table mis_tasks add column if not exists is_one_time boolean default false
 -- If the table already existed, add the new list columns:
 alter table mis_tasks add column if not exists projects jsonb;
 alter table mis_tasks add column if not exists sections jsonb;
+alter table mis_tasks add column if not exists own_section text;
 create index if not exists idx_mis_tasks_assignee  on mis_tasks(assignee);
 create index if not exists idx_mis_tasks_project    on mis_tasks(project);
 create index if not exists idx_mis_tasks_completed  on mis_tasks(completed);
