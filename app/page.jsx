@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { StatusDonut, PerAssigneeBar, PerProjectBar } from "@/components/Charts";
 import Logo from "@/components/Logo";
 
-const TABS = ["Overview", "Team", "Tasks", "Charts", "One Time Tasks", "To-Do Tasks", "Activity"];
+const TABS = ["Overview", "One Time Tasks", "To-Do Tasks", "Tasks", "Team", "Charts", "Activity"];
 
 export default function Dashboard() {
   const router = useRouter();
@@ -606,6 +606,13 @@ function pctBadge(pct) {
   return "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-400";
 }
 
+// Score color: -100..-60 red, -60..-30 yellow, -30..0 green (green = mostly completed).
+function scoreBadge(score) {
+  if (score <= -60) return "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-400";
+  if (score <= -30) return "bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-400";
+  return "bg-green-100 text-green-700 dark:bg-green-950/50 dark:text-green-400";
+}
+
 function initials(name) {
   return (name || "?")
     .split(" ")
@@ -688,8 +695,8 @@ function PerformanceTable({ data, onSelect }) {
     <Panel>
       <h2 className="font-semibold text-sm mb-1">Performance scorecard — One-Time tasks</h2>
       <p className="text-xs text-gray-400 mb-3">
-        Score is a penalty: <span className="font-semibold">0% = perfect</span> (all on time), and it goes more negative
-        with delays, overdue, and date-revisions. Worst first.
+        Score = completion: <span className="font-semibold">0% = all tasks completed</span> (best, green),{" "}
+        <span className="font-semibold">−100% = none completed</span> (worst, red). Worst first.
       </p>
       <input
         value={q}
@@ -740,11 +747,7 @@ function PerformanceTable({ data, onSelect }) {
                 <td className="py-2.5 px-2 text-gray-400">{r.no_due}</td>
                 <td className="py-2.5 px-2">
                   <span
-                    className={`inline-block px-2 py-1 rounded-md text-xs font-semibold ${
-                      r.score < 0
-                        ? "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-400"
-                        : "bg-green-100 text-green-700 dark:bg-green-950/50 dark:text-green-400"
-                    }`}
+                    className={`inline-block px-2 py-1 rounded-md text-xs font-semibold ${scoreBadge(r.score)}`}
                   >
                     {r.score}%
                   </span>
@@ -1083,7 +1086,7 @@ function PerformancePersonDrawer({ person, tasks, onClose, onSelectTask }) {
             <p className="text-xs text-gray-400 uppercase tracking-wide">Performance · One-Time tasks</p>
             <h2 className="font-bold text-base">{person.assignee}</h2>
             <div className="flex flex-wrap gap-2 mt-2 text-xs">
-              <span className={`px-2 py-1 rounded-md font-semibold ${person.score < 0 ? "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-400" : "bg-green-100 text-green-700 dark:bg-green-950/50 dark:text-green-400"}`}>
+              <span className={`px-2 py-1 rounded-md font-semibold ${scoreBadge(person.score)}`}>
                 Score {person.score}%
               </span>
               <span className="text-gray-500">Total {person.total}</span>

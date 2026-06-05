@@ -90,7 +90,10 @@ create or replace function mis_filter_lists() returns jsonb language sql stable 
   );
 $$;
 
--- ---- Performance: one-time task timeliness per person (always-negative score) ----
+-- ---- Performance: one-time COMPLETION per person ----
+-- Score = (completed ÷ total) − 100  →  0% = ALL done (best), −100% = none done (worst).
+-- Gradual (half done ≈ −50%). The delayed/overdue/revised columns stay as info,
+-- but no longer affect the score itself.
 alter table mis_tasks add column if not exists original_due_on date;
 alter table mis_tasks add column if not exists one_time_section text;
 
@@ -121,7 +124,7 @@ create or replace function mis_performance(p_from date default null, p_to date d
     'assignee', assignee, 'total', total, 'completed', completed, 'pending', pending, 'overdue', overdue,
     'on_time', on_time, 'delayed', delayed, 'no_due', no_due, 'revised', revised,
     'days_overdue', days_overdue, 'days_late', days_late,
-    'score', greatest(-100, coalesce(round(-100.0 * (delayed + overdue + revised) / nullif(on_time + delayed + overdue, 0)), 0))
-  ) order by greatest(-100, coalesce(round(-100.0 * (delayed + overdue + revised) / nullif(on_time + delayed + overdue, 0)), 0)) asc), '[]'::jsonb)
+    'score', coalesce(round(100.0 * completed / nullif(total, 0)), 0) - 100
+  ) order by coalesce(round(100.0 * completed / nullif(total, 0)), 0) - 100 asc), '[]'::jsonb)
   from p;
 $$;
