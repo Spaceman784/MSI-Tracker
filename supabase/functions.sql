@@ -30,18 +30,22 @@ create or replace function mis_summary(
   p_search   text default null,
   p_archived boolean default false
 ) returns jsonb language sql stable as $$
-  with f as (
+  with base as (
+    -- all filters EXCEPT completion-status and archived
     select * from mis_tasks t
     where (p_assignee is null or t.assignee = p_assignee)
       and (p_project  is null or coalesce(t.projects, '[]'::jsonb) ? p_project)
       and (p_section  is null or t.own_section = p_section)
-      and (p_status   is null
-           or (p_status = 'Completed' and t.completed)
-           or (p_status = 'Open'      and not t.completed)
-           or (p_status = 'Overdue'   and not t.completed and t.due_on < current_date))
       and (p_from   is null or (t.created_at at time zone 'Asia/Kolkata')::date >= p_from)
       and (p_to     is null or (t.created_at at time zone 'Asia/Kolkata')::date <= p_to)
       and (p_search is null or t.name ilike '%'||p_search||'%' or t.assignee ilike '%'||p_search||'%')
+  ),
+  f as (
+    select * from base t
+    where (p_status   is null
+           or (p_status = 'Completed' and t.completed)
+           or (p_status = 'Open'      and not t.completed)
+           or (p_status = 'Overdue'   and not t.completed and t.due_on < current_date))
       and coalesce(t.archived, false) = p_archived
   )
   select jsonb_build_object(
@@ -50,7 +54,8 @@ create or replace function mis_summary(
         'total',     count(*),
         'completed', count(*) filter (where completed),
         'open',      count(*) filter (where not completed),
-        'overdue',   count(*) filter (where not completed and due_on < current_date)
+        'overdue',   count(*) filter (where not completed and due_on < current_date),
+        'archived',  (select count(*) from base where coalesce(archived, false) = true)
       ) from f
     ),
     -- Per-person table: ALL columns are ONE-TIME tasks only.

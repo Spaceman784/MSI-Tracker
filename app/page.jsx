@@ -236,7 +236,7 @@ export default function Dashboard() {
   }
 
   const lists = data?.lists || { assignees: ["All"], projects: ["All"], sections: ["All"] };
-  const kpis = data?.kpis || { total: 0, completed: 0, open: 0, overdue: 0 };
+  const kpis = data?.kpis || { total: 0, completed: 0, open: 0, overdue: 0, archived: 0 };
   const perAssignee = data?.perAssignee || [];
   const perProject = data?.perProject || [];
   const tasks = data?.tasks || [];
@@ -371,11 +371,12 @@ export default function Dashboard() {
           <>
             {tab === "Overview" && (
               <div className="space-y-4">
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
                   <KPI label="Total Tasks" value={kpis.total} color="text-indigo-600 dark:text-indigo-400" />
                   <KPI label="Completed" value={kpis.completed} color="text-green-600 dark:text-green-400" />
                   <KPI label="Open" value={kpis.open} color="text-amber-600 dark:text-amber-400" />
                   <KPI label="Overdue" value={kpis.overdue} color="text-red-600 dark:text-red-400" />
+                  <KPI label="Archived" value={kpis.archived} color="text-gray-500 dark:text-gray-400" />
                 </div>
                 <AssigneeTable rows={perAssignee} />
               </div>
