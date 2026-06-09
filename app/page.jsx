@@ -416,7 +416,10 @@ export default function Dashboard() {
               <div className="space-y-5">
                 <DailyScorecard data={daily} />
                 <RecurringScorecard kind="weekly" title="Weekly to-do scorecard" recurring={recurring} />
+                <RecurringScorecard kind="biweekly" title="Bi-Weekly to-do scorecard" recurring={recurring} />
                 <RecurringScorecard kind="monthly" title="Monthly to-do scorecard" recurring={recurring} />
+                <RecurringScorecard kind="bimonthly" title="Bi-Monthly to-do scorecard" recurring={recurring} />
+                <RecurringScorecard kind="quarterly" title="Quarterly to-do scorecard" recurring={recurring} />
               </div>
             )}
 
@@ -912,7 +915,9 @@ function RecurringScorecard({ kind, title, recurring, defaultOpen = false }) {
   const data = recurring[kind] || { periods: [], rows: [] };
   const periods = data.periods || [];
   const rows = data.rows || [];
-  const unit = kind === "weekly" ? "week" : "month";
+  const unitMany =
+    { weekly: "weeks", biweekly: "fortnights", monthly: "months", bimonthly: "2-month blocks", quarterly: "quarters" }[kind] ||
+    "periods";
 
   const s = q.trim().toLowerCase();
   const filtered = s
@@ -936,7 +941,7 @@ function RecurringScorecard({ kind, title, recurring, defaultOpen = false }) {
       <div onClick={() => setOpen((o) => !o)} className="flex items-center gap-2 cursor-pointer select-none mb-1">
         <span className="text-gray-400 text-xs w-3 inline-block">{open ? "▾" : "▸"}</span>
         <h2 className="font-semibold text-sm">
-          {title} — on time vs missed (last {periods.length} {unit}s)
+          {title} — on time vs missed (last {periods.length} {unitMany})
         </h2>
       </div>
       {open && (
@@ -953,8 +958,7 @@ function RecurringScorecard({ kind, title, recurring, defaultOpen = false }) {
       />
       {people.length === 0 && (
         <p className="py-6 text-center text-gray-400">
-          No {kind} tasks found. Run the recurring sync, and make sure tasks in each To-Do board's {unit.toUpperCase()}LY
-          section are assigned in Asana.
+          No tasks found for this cadence. Run the recurring sync, and make sure these tasks are assigned in Asana.
         </p>
       )}
       <div className="space-y-5">
@@ -970,14 +974,14 @@ function RecurringScorecard({ kind, title, recurring, defaultOpen = false }) {
                 </span>
                 <span className="font-medium text-sm">{person}</span>
                 <span className="text-xs text-gray-400">
-                  {tasks.length} {kind} task{tasks.length > 1 ? "s" : ""} · {totalDone}/{totalCells} on time
+                  {tasks.length} task{tasks.length > 1 ? "s" : ""} · {totalDone}/{totalCells} on time
                 </span>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="text-left text-[11px] uppercase tracking-wide text-gray-400 border-b border-gray-200 dark:border-gray-800">
-                      <th className="py-1.5 px-2 capitalize">{kind} task</th>
+                      <th className="py-1.5 px-2">Task</th>
                       {periods.map((p) => (
                         <th key={p} className="py-1.5 px-1 text-center w-14">
                           {p}

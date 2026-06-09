@@ -11,58 +11,141 @@ function istToday() {
 }
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
+// ---- date key helpers ----
+function addDaysKey(key, n) {
+  const d = new Date(key + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
 function mondayKeyOf(dateStr) {
   const d = new Date(dateStr + "T00:00:00Z");
   const dow = d.getUTCDay(); // 0 Sun .. 6 Sat
-  const off = dow === 0 ? 6 : dow - 1;
-  d.setUTCDate(d.getUTCDate() - off);
+  d.setUTCDate(d.getUTCDate() - (dow === 0 ? 6 : dow - 1));
   return d.toISOString().slice(0, 10);
 }
 function monthKeyOf(dateStr) {
   return dateStr.slice(0, 7);
 }
-function weekLabel(mondayKey) {
-  const d = new Date(mondayKey + "T00:00:00Z");
+function lastDayOfMonth(ym) {
+  const [y, m] = ym.split("-").map(Number);
+  return new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10); // day 0 of next month
+}
+function addMonthsKey(ym, n) {
+  let [y, m] = ym.split("-").map(Number);
+  const idx = y * 12 + (m - 1) + n;
+  return `${Math.floor(idx / 12)}-${String((((idx % 12) + 12) % 12) + 1).padStart(2, "0")}`;
+}
+// Fortnight: 2-week blocks anchored to a fixed Monday (1970-01-05), so boundaries are stable.
+const EPOCH_MON = Date.UTC(1970, 0, 5);
+function fortnightStartOf(dateStr) {
+  const mon = mondayKeyOf(dateStr);
+  const weeks = Math.round((new Date(mon + "T00:00:00Z").getTime() - EPOCH_MON) / (7 * 86400000));
+  return addDaysKey(mon, -7 * (((weeks % 2) + 2) % 2));
+}
+// Bi-month: calendar-aligned 2-month blocks (Jan–Feb, Mar–Apr, …); key = the odd start month.
+function bimonthStartOf(dateStr) {
+  let [y, m] = dateStr.slice(0, 7).split("-").map(Number);
+  if (m % 2 === 0) m -= 1;
+  return `${y}-${String(m).padStart(2, "0")}`;
+}
+function quarterKeyOf(dateStr) {
+  const [y, m] = dateStr.split("-").map(Number);
+  return `${y}-Q${Math.floor((m - 1) / 3) + 1}`;
+}
+
+// ---- labels ----
+function weekLabel(monKey) {
+  const d = new Date(monKey + "T00:00:00Z");
   return `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}`;
 }
-function monthLabel(key) {
-  const [y, m] = key.split("-");
+function monthLabel(ym) {
+  const [y, m] = ym.split("-");
   return `${MONTHS[+m - 1]} '${y.slice(2)}`;
 }
+function bimonthLabel(ym) {
+  const [y, m] = ym.split("-").map(Number);
+  return `${MONTHS[m - 1]}–${MONTHS[m]} '${String(y).slice(2)}`;
+}
+
+// ---- period generators: each returns [{ key, label, start, end }] oldest→newest ----
 function lastWeeks(n) {
   const out = [];
-  const d = new Date(mondayKeyOf(istToday()) + "T00:00:00Z");
+  let mon = mondayKeyOf(istToday());
   for (let i = 0; i < n; i++) {
-    const key = d.toISOString().slice(0, 10);
-    out.unshift({ key, label: weekLabel(key) });
-    d.setUTCDate(d.getUTCDate() - 7);
+    out.unshift({ key: mon, label: weekLabel(mon), start: mon, end: addDaysKey(mon, 6) });
+    mon = addDaysKey(mon, -7);
+  }
+  return out;
+}
+function lastBiweeks(n) {
+  const out = [];
+  let fs = fortnightStartOf(istToday());
+  for (let i = 0; i < n; i++) {
+    out.unshift({ key: fs, label: weekLabel(fs), start: fs, end: addDaysKey(fs, 13) });
+    fs = addDaysKey(fs, -14);
   }
   return out;
 }
 function lastMonths(n) {
   const out = [];
+  let ym = istToday().slice(0, 7);
+  for (let i = 0; i < n; i++) {
+    out.unshift({ key: ym, label: monthLabel(ym), start: `${ym}-01`, end: lastDayOfMonth(ym) });
+    ym = addMonthsKey(ym, -1);
+  }
+  return out;
+}
+function lastBimonths(n) {
+  const out = [];
+  let bs = bimonthStartOf(istToday());
+  for (let i = 0; i < n; i++) {
+    out.unshift({ key: bs, label: bimonthLabel(bs), start: `${bs}-01`, end: lastDayOfMonth(addMonthsKey(bs, 1)) });
+    bs = addMonthsKey(bs, -2);
+  }
+  return out;
+}
+function lastQuarters(n) {
+  const out = [];
   const t = istToday();
   let y = +t.slice(0, 4);
-  let m = +t.slice(5, 7);
+  let q = Math.floor((+t.slice(5, 7) - 1) / 3) + 1;
   for (let i = 0; i < n; i++) {
-    const key = `${y}-${String(m).padStart(2, "0")}`;
-    out.unshift({ key, label: monthLabel(key) });
-    m--;
-    if (m === 0) {
-      m = 12;
+    const sm = (q - 1) * 3 + 1;
+    out.unshift({
+      key: `${y}-Q${q}`,
+      label: `Q${q} '${String(y).slice(2)}`,
+      start: `${y}-${String(sm).padStart(2, "0")}-01`,
+      end: lastDayOfMonth(`${y}-${String(sm + 2).padStart(2, "0")}`),
+    });
+    q--;
+    if (q === 0) {
+      q = 4;
       y--;
     }
   }
   return out;
 }
-function lastDayOfMonth(key) {
-  const [y, m] = key.split("-").map(Number);
-  return new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10); // day 0 of next month
-}
+
+// Per-cadence config: how to bucket a due date, and how many periods to show.
+const KEYER = {
+  weekly: mondayKeyOf,
+  biweekly: fortnightStartOf,
+  monthly: monthKeyOf,
+  bimonthly: bimonthStartOf,
+  quarterly: quarterKeyOf,
+};
+const PERIODS = {
+  weekly: () => lastWeeks(6),
+  biweekly: () => lastBiweeks(6),
+  monthly: () => lastMonths(6),
+  bimonthly: () => lastBimonths(6),
+  quarterly: () => lastQuarters(4), // last 4 quarters (one year)
+};
+const KINDS = ["weekly", "biweekly", "monthly", "bimonthly", "quarterly"];
 
 // Bucket a task's cycles into the period columns → ['on_time'|'missed'|'none', …].
 function bucketCells(kind, cycles, periodKeys) {
-  const keyer = kind === "weekly" ? mondayKeyOf : monthKeyOf;
+  const keyer = KEYER[kind];
   const sev = (s) => (s === "on_time" ? 0 : 1); // missed/late dominates a period
   const byP = new Map();
   for (const c of cycles || []) {
@@ -75,18 +158,10 @@ function bucketCells(kind, cycles, periodKeys) {
 }
 
 async function buildKind(sb, kind) {
-  const periods = kind === "weekly" ? lastWeeks(6) : lastMonths(6);
+  const periods = PERIODS[kind]();
   const keys = periods.map((p) => p.key);
-  const last = keys[keys.length - 1];
-  const from = kind === "weekly" ? keys[0] : `${keys[0]}-01`;
-  let to;
-  if (kind === "weekly") {
-    const d = new Date(last + "T00:00:00Z");
-    d.setUTCDate(d.getUTCDate() + 6); // through the current week's Saturday/Sunday
-    to = d.toISOString().slice(0, 10);
-  } else {
-    to = lastDayOfMonth(last);
-  }
+  const from = periods[0].start;
+  const to = periods[periods.length - 1].end;
 
   const { data, error } = await sb.rpc("mis_recurring_scorecard", { p_kind: kind, p_from: from, p_to: to });
   if (error) return { error };
@@ -115,24 +190,27 @@ export async function GET() {
   const sb = getSupabase();
   if (!sb) return NextResponse.json({ error: "NO_SUPABASE" }, { status: 400 });
 
-  const weekly = await buildKind(sb, "weekly");
-  const monthly = await buildKind(sb, "monthly");
-
-  const err = weekly.error || monthly.error;
-  if (err) {
-    const missing = /mis_recurring/.test(err.message || "");
+  const built = await Promise.all(KINDS.map((k) => buildKind(sb, k)));
+  const failed = built.find((b) => b.error);
+  if (failed) {
+    const missing = /mis_recurring/.test(failed.error.message || "");
     return NextResponse.json(
       {
         error: missing ? "NO_FUNCTION" : "DB_ERROR",
         message: missing
-          ? "Weekly/Monthly tracker not installed yet. Run supabase/recurring.sql, then sync."
-          : err.message,
+          ? "Recurring tracker not installed yet. Run supabase/recurring.sql, then sync."
+          : failed.error.message,
       },
       { status: missing ? 400 : 500 }
     );
   }
 
+  const out = {};
+  KINDS.forEach((k, i) => {
+    out[k] = built[i];
+  });
+
   const { data: meta } = await sb.from("mis_meta").select("value").eq("key", "recurring_last_synced").maybeSingle();
 
-  return NextResponse.json({ weekly, monthly, lastSynced: (meta && meta.value) || null });
+  return NextResponse.json({ ...out, lastSynced: (meta && meta.value) || null });
 }
