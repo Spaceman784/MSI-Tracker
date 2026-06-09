@@ -16,11 +16,12 @@ export async function GET() {
   const sel = "gid,name,assignee,project,projects,created_at,completed_at,due_on,completed";
 
   const [added, completed, removed] = await Promise.all([
-    sb.from("mis_tasks").select(sel).order("created_at", { ascending: false, nullsFirst: false }).limit(50),
+    sb.from("mis_tasks").select(sel).eq("archived", false).order("created_at", { ascending: false, nullsFirst: false }).limit(50),
     sb
       .from("mis_tasks")
       .select(sel)
       .eq("completed", true)
+      .eq("archived", false)
       .order("completed_at", { ascending: false, nullsFirst: false })
       .limit(50),
     sb

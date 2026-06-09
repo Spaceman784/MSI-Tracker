@@ -14,6 +14,11 @@ create index if not exists idx_mis_tasks_sections_gin on mis_tasks using gin (se
 alter table mis_tasks add column if not exists own_section text;
 create index if not exists idx_mis_tasks_own_section on mis_tasks (own_section);
 
+-- Archived tasks (in an "Archived" section, or on an archived board). Kept in the
+-- table but HIDDEN by default everywhere; viewable via the Status = 'Archived' filter.
+alter table mis_tasks add column if not exists archived boolean default false;
+create index if not exists idx_mis_tasks_archived on mis_tasks (archived);
+
 -- ---- Aggregates: KPIs + per-assignee + per-project (with filters) ----
 create or replace function mis_summary(
   p_assignee text default null,
@@ -22,7 +27,8 @@ create or replace function mis_summary(
   p_status   text default null,
   p_from     date default null,
   p_to       date default null,
-  p_search   text default null
+  p_search   text default null,
+  p_archived boolean default false
 ) returns jsonb language sql stable as $$
   with f as (
     select * from mis_tasks t
@@ -36,6 +42,7 @@ create or replace function mis_summary(
       and (p_from   is null or (t.created_at at time zone 'Asia/Kolkata')::date >= p_from)
       and (p_to     is null or (t.created_at at time zone 'Asia/Kolkata')::date <= p_to)
       and (p_search is null or t.name ilike '%'||p_search||'%' or t.assignee ilike '%'||p_search||'%')
+      and coalesce(t.archived, false) = p_archived
   )
   select jsonb_build_object(
     'kpis', (
@@ -80,12 +87,12 @@ $$;
 create or replace function mis_filter_lists() returns jsonb language sql stable as $$
   select jsonb_build_object(
     'assignees', (select coalesce(jsonb_agg(a order by a), '[]'::jsonb)
-                  from (select distinct assignee a from mis_tasks where assignee is not null) x),
+                  from (select distinct assignee a from mis_tasks where assignee is not null and coalesce(archived,false)=false) x),
     'projects',  (select coalesce(jsonb_agg(p order by p), '[]'::jsonb)
-                  from (select distinct jsonb_array_elements_text(coalesce(projects, '[]'::jsonb)) p from mis_tasks) x),
+                  from (select distinct jsonb_array_elements_text(coalesce(projects, '[]'::jsonb)) p from mis_tasks where coalesce(archived,false)=false) x),
     'sections',  (select coalesce(jsonb_agg(s order by s), '[]'::jsonb)
-                  from (select distinct own_section s from mis_tasks where own_section is not null) x),
-    'taskCount', (select count(*) from mis_tasks),
+                  from (select distinct own_section s from mis_tasks where own_section is not null and coalesce(archived,false)=false) x),
+    'taskCount', (select count(*) from mis_tasks where coalesce(archived,false)=false),
     'lastSynced',(select value from mis_meta where key = 'last_synced')
   );
 $$;
@@ -117,6 +124,7 @@ create or replace function mis_performance(p_from date default null, p_to date d
     from mis_tasks
     where (p_from is null or (created_at at time zone 'Asia/Kolkata')::date >= p_from)
       and (p_to   is null or (created_at at time zone 'Asia/Kolkata')::date <= p_to)
+      and coalesce(archived, false) = false
     group by assignee
     having count(*) filter (where is_one_time) > 0
   )

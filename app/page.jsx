@@ -302,7 +302,7 @@ export default function Dashboard() {
             <SearchableSelect label="Assignee" value={fAssignee} onChange={setFAssignee} options={lists.assignees} />
             <SearchableSelect label="Board / Project" value={fProject} onChange={setFProject} options={lists.projects} />
             <SearchableSelect label="Section" value={fSection} onChange={setFSection} options={lists.sections} />
-            <Select label="Status" value={fStatus} onChange={setFStatus} options={["All", "Open", "Completed", "Overdue"]} />
+            <Select label="Status" value={fStatus} onChange={setFStatus} options={["All", "Open", "Completed", "Overdue", "Archived"]} />
             <div className="col-span-2 md:col-span-1">
               <label className="filter-label">Calendar</label>
               <div className="flex flex-col gap-1.5 min-w-0">

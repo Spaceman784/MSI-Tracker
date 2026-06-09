@@ -100,6 +100,7 @@ for (const t of d.tasks) {
       is_one_time: isOneTime(t.assignee, t.projects || (t.project ? [t.project] : [])),
       one_time_section: oneTimeSection(t.assignee, t.memberships),
       own_section: ownSection(t.assignee, t.memberships),
+      archived: t.archived || false,
       synced_at: runStart,
     });
   }
@@ -147,6 +148,13 @@ const ownProbe = await sb.from("mis_tasks").select("own_section").limit(1);
 if (ownProbe.error && /own_section/i.test(ownProbe.error.message)) {
   console.log("ℹ 'own_section' column not found — run the SQL to enable own-board section filtering.");
   for (const r of rows) delete r.own_section;
+}
+
+// archived column — resilient if missing (run the SQL to enable archived hiding)
+const archProbe = await sb.from("mis_tasks").select("archived").limit(1);
+if (archProbe.error && /archived/i.test(archProbe.error.message)) {
+  console.log("ℹ 'archived' column not found — syncing without it. Run the SQL to enable archived hiding.");
+  for (const r of rows) delete r.archived;
 }
 
 const CHUNK = 500;

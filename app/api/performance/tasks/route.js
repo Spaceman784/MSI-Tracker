@@ -34,7 +34,8 @@ export async function GET(req) {
       .from("mis_tasks")
       .select("gid,name,due_on,created_at,completed,completed_at,original_due_on,projects,section,sections,one_time_section")
       .eq("assignee", assignee)
-      .eq("is_one_time", true);
+      .eq("is_one_time", true)
+      .eq("archived", false);
     if (dFrom) q = q.gte("created_at", `${dFrom}T00:00:00+05:30`);
     if (dTo) q = q.lt("created_at", `${nextDay(dTo)}T00:00:00+05:30`);
     q = q.order("due_on", { ascending: true, nullsFirst: false }).range(offset, offset + 999);
