@@ -857,17 +857,20 @@ function ToDoTasks({ daily, recurring, person, onPerson }) {
 }
 
 // Shared shell: section title + average-score badge + task count, then a table.
-function SectionShell({ title, avg, count, children }) {
+function SectionShell({ title, avg, count, done, total, children }) {
   return (
     <div className="border-t border-gray-100 dark:border-gray-900 pt-4">
-      <div className="flex items-center gap-2 mb-2">
-        <h3 className="font-semibold text-sm">{title}</h3>
+      <div className="flex flex-wrap items-center gap-3 mb-3">
+        <h3 className="font-semibold text-base">{title}</h3>
         {avg != null ? (
-          <span className={`inline-block px-2 py-0.5 rounded-md text-xs font-semibold ${pctBadge(avg)}`}>
-            {avg}% avg
+          <span
+            className={`inline-flex items-baseline gap-2 px-4 py-2 rounded-xl text-lg font-bold shadow-sm ${pctBadge(avg)}`}
+          >
+            {avg}% avg tasks completed
+            {total ? <span className="text-sm font-semibold opacity-75">· {done} of {total}</span> : null}
           </span>
         ) : (
-          <span className="text-xs text-gray-400">no score</span>
+          <span className="text-sm text-gray-400">no score</span>
         )}
         <span className="text-xs text-gray-400">
           {count} task{count === 1 ? "" : "s"}
@@ -903,7 +906,7 @@ function DailyPersonSection({ daily, person }) {
   };
 
   return (
-    <SectionShell title="Daily" avg={avg} count={tasks.length}>
+    <SectionShell title="Daily" avg={avg} count={tasks.length} done={totalDone} total={totalTarget}>
       {tasks.length === 0 ? (
         <p className="text-xs text-gray-400">No daily tasks.</p>
       ) : (
@@ -985,7 +988,7 @@ function RecurringPersonSection({ kind, title, recurring, person }) {
   const glyph = (v) => (v === "on_time" ? "✓" : v === "missed" ? "✗" : "·");
 
   return (
-    <SectionShell title={title} avg={avg} count={tasks.length}>
+    <SectionShell title={title} avg={avg} count={tasks.length} done={totalDone} total={totalCells}>
       {tasks.length === 0 ? (
         <p className="text-xs text-gray-400">No {title.toLowerCase()} tasks.</p>
       ) : (
