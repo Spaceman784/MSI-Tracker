@@ -141,3 +141,30 @@ create or replace function mis_performance(p_from date default null, p_to date d
   ) order by coalesce(round(100.0 * completed / nullif(total, 0)), 0) - 100 asc), '[]'::jsonb)
   from p;
 $$;
+
+-- ---- Planned vs Actual: one-time tasks planned (due) in a range vs done on time ----
+-- p_from/p_to filter by DUE date; both null = all time (every one-time task with a due date).
+-- "actual" (on_time) counts ONLY tasks completed on or before their due date.
+create or replace function mis_planned_actual(p_from date default null, p_to date default null)
+returns jsonb language sql stable as $$
+  with p as (
+    select assignee,
+      count(*) as planned,
+      count(*) filter (where completed and completed_at is not null and completed_at::date <= due_on) as on_time,
+      count(*) filter (where completed and completed_at is not null and completed_at::date >  due_on) as late,
+      count(*) filter (where not completed) as not_done
+    from mis_tasks
+    where is_one_time
+      and coalesce(archived, false) = false
+      and due_on is not null
+      and (p_from is null or due_on >= p_from)
+      and (p_to   is null or due_on <= p_to)
+    group by assignee
+    having count(*) > 0
+  )
+  select coalesce(jsonb_agg(jsonb_build_object(
+    'assignee', assignee, 'planned', planned, 'on_time', on_time, 'late', late, 'not_done', not_done,
+    'score', coalesce(round(100.0 * on_time / nullif(planned, 0)), 0) - 100
+  ) order by coalesce(round(100.0 * on_time / nullif(planned, 0)), 0) - 100 asc), '[]'::jsonb)
+  from p;
+$$;

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { StatusDonut, PerAssigneeBar, PerProjectBar } from "@/components/Charts";
 import Logo from "@/components/Logo";
 
-const TABS = ["Overview", "One Time Tasks", "To-Do Tasks", "Tasks", "Team", "Charts", "Activity"];
+const TABS = ["One Time Tasks", "To-Do Tasks", "Planned vs Actual", "Tasks", "Team", "Charts", "Activity", "Overview"];
 
 export default function Dashboard() {
   const router = useRouter();
@@ -26,6 +26,9 @@ export default function Dashboard() {
   const [recurring, setRecurring] = useState(null);
   const [perfPerson, setPerfPerson] = useState(null);
   const [perfTasks, setPerfTasks] = useState(null);
+  const [planned, setPlanned] = useState(null);
+  const [plannedFrom, setPlannedFrom] = useState(""); // empty = all time
+  const [plannedTo, setPlannedTo] = useState("");
   const [refreshTick, setRefreshTick] = useState(0);
 
   // filters
@@ -158,6 +161,24 @@ export default function Dashboard() {
       cancelled = true;
     };
   }, [tab, refreshTick, dateFrom, dateTo]);
+
+  // load Planned vs Actual when the tab is open (and when its date range changes)
+  useEffect(() => {
+    if (tab !== "Planned vs Actual") return;
+    let cancelled = false;
+    const p = new URLSearchParams();
+    if (plannedFrom) p.set("from", plannedFrom);
+    if (plannedTo) p.set("to", plannedTo);
+    fetch(`/api/planned?${p.toString()}`)
+      .then((r) => r.json())
+      .then((j) => {
+        if (!cancelled) setPlanned(j);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [tab, plannedFrom, plannedTo, refreshTick]);
 
   // load the Daily to-do scorecard when the tab is open (and on each refresh tick)
   useEffect(() => {
@@ -422,6 +443,16 @@ export default function Dashboard() {
                 <RecurringScorecard kind="bimonthly" title="Bi-Monthly to-do scorecard" recurring={recurring} />
                 <RecurringScorecard kind="quarterly" title="Quarterly to-do scorecard" recurring={recurring} />
               </div>
+            )}
+
+            {tab === "Planned vs Actual" && (
+              <PlannedActualTable
+                data={planned}
+                from={plannedFrom}
+                to={plannedTo}
+                onFrom={setPlannedFrom}
+                onTo={setPlannedTo}
+              />
             )}
 
             {tab === "Activity" && <ActivityFeed data={activity} onSelect={setDetailGid} />}
@@ -1169,6 +1200,113 @@ function PerformancePersonDrawer({ person, tasks, onClose, onSelectTask }) {
         )}
       </div>
     </div>
+  );
+}
+
+function PlannedActualTable({ data, from, to, onFrom, onTo }) {
+  const [q, setQ] = useState("");
+  const rows = (data && data.rows) || [];
+  const s = q.trim().toLowerCase();
+  const filtered = s ? rows.filter((r) => r.assignee.toLowerCase().includes(s)) : rows;
+  const totals = filtered.reduce(
+    (a, r) => ({
+      planned: a.planned + r.planned,
+      on_time: a.on_time + r.on_time,
+      late: a.late + r.late,
+      not_done: a.not_done + r.not_done,
+    }),
+    { planned: 0, on_time: 0, late: 0, not_done: 0 }
+  );
+
+  return (
+    <Panel>
+      <h2 className="font-semibold text-sm mb-1">Planned vs Actual — One-Time tasks</h2>
+      <p className="text-xs text-gray-400 mb-3">
+        <span className="font-semibold">Planned</span> = one-time tasks whose <span className="font-semibold">due date</span> falls
+        in the range below (empty = all time). <span className="font-semibold">Actual (On-Time)</span> = completed on or before
+        the due date. Score: 0% = everything done on time · −100% = nothing on time. Worst first.
+      </p>
+
+      <div className="flex flex-wrap items-end gap-3 mb-4">
+        <div>
+          <label className="filter-label">Due date from</label>
+          <input type="date" value={from} onChange={(e) => onFrom(e.target.value)} className="filter-input" />
+        </div>
+        <div>
+          <label className="filter-label">Due date to</label>
+          <input type="date" value={to} onChange={(e) => onTo(e.target.value)} className="filter-input" />
+        </div>
+        {(from || to) && (
+          <button
+            onClick={() => {
+              onFrom("");
+              onTo("");
+            }}
+            className="btn-ghost"
+          >
+            ✕ All time
+          </button>
+        )}
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Search person…"
+          className="filter-input max-w-xs ml-auto"
+        />
+      </div>
+
+      {!data && <p className="text-sm text-gray-500">Loading planned vs actual…</p>}
+      {data && data.error && (
+        <p className="text-sm text-amber-600 dark:text-amber-400">{data.message || "Run the SQL in Supabase, then reload."}</p>
+      )}
+
+      {data && !data.error && (
+        <>
+          <p className="text-xs text-gray-400 mb-2">
+            {filtered.length} people · planned {totals.planned.toLocaleString()} · on-time{" "}
+            {totals.on_time.toLocaleString()} · late {totals.late.toLocaleString()} · not done{" "}
+            {totals.not_done.toLocaleString()}
+          </p>
+          <div className="overflow-x-auto max-h-[70vh]">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 bg-white dark:bg-[#141414]">
+                <tr className="text-left text-xs uppercase tracking-wide text-gray-400 border-b border-gray-200 dark:border-gray-800">
+                  <th className="py-2.5 px-2">Assignee</th>
+                  <th className="py-2.5 px-2">Planned</th>
+                  <th className="py-2.5 px-2">On-Time (Actual)</th>
+                  <th className="py-2.5 px-2">Late</th>
+                  <th className="py-2.5 px-2">Not Done</th>
+                  <th className="py-2.5 px-2">Score</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="py-6 text-center text-gray-400">
+                      No one-time tasks with a due date in this range.
+                    </td>
+                  </tr>
+                )}
+                {filtered.map((r) => (
+                  <tr key={r.assignee} className="border-b border-gray-100 dark:border-gray-900 hover:bg-gray-50 dark:hover:bg-[#1a1a1a]">
+                    <td className="py-2.5 px-2 font-medium">{r.assignee}</td>
+                    <td className="py-2.5 px-2">{r.planned}</td>
+                    <td className="py-2.5 px-2 text-green-600 dark:text-green-400">{r.on_time}</td>
+                    <td className="py-2.5 px-2 text-red-600 dark:text-red-400">{r.late}</td>
+                    <td className="py-2.5 px-2 text-amber-600 dark:text-amber-400">{r.not_done}</td>
+                    <td className="py-2.5 px-2">
+                      <span className={`inline-block px-2 py-1 rounded-md text-xs font-semibold ${scoreBadge(r.score)}`}>
+                        {r.score}%
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </Panel>
   );
 }
 
