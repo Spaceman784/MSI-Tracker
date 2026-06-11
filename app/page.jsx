@@ -825,8 +825,15 @@ function ToDoTasks({ daily, recurring, person, onPerson }) {
         6 days); the rest are on-time ticks ÷ (tasks × periods).
       </p>
 
-      <div className="max-w-xs mb-4">
-        <SearchableSelect label="Person" value={person || "— Select a person —"} onChange={onPerson} options={people} />
+      <div className="flex items-end gap-2 mb-4">
+        <div className="w-full max-w-xs">
+          <SearchableSelect label="Person" value={person || "— Select a person —"} onChange={onPerson} options={people} />
+        </div>
+        {person && (
+          <button onClick={() => onPerson(null)} className="btn-ghost" title="Clear and pick another person">
+            ✕ Clear
+          </button>
+        )}
       </div>
 
       {loading && <p className="text-sm text-gray-500">Loading scorecards…</p>}
