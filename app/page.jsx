@@ -24,6 +24,7 @@ export default function Dashboard() {
   const [performance, setPerformance] = useState(null);
   const [daily, setDaily] = useState(null);
   const [recurring, setRecurring] = useState(null);
+  const [todoPerson, setTodoPerson] = useState(null);
   const [perfPerson, setPerfPerson] = useState(null);
   const [perfTasks, setPerfTasks] = useState(null);
   const [planned, setPlanned] = useState(null);
@@ -435,14 +436,7 @@ export default function Dashboard() {
             {tab === "One Time Tasks" && <PerformanceTable data={performance} onSelect={setPerfPerson} />}
 
             {tab === "To-Do Tasks" && (
-              <div className="space-y-5">
-                <DailyScorecard data={daily} />
-                <RecurringScorecard kind="weekly" title="Weekly to-do scorecard" recurring={recurring} />
-                <RecurringScorecard kind="biweekly" title="Bi-Weekly to-do scorecard" recurring={recurring} />
-                <RecurringScorecard kind="monthly" title="Monthly to-do scorecard" recurring={recurring} />
-                <RecurringScorecard kind="bimonthly" title="Bi-Monthly to-do scorecard" recurring={recurring} />
-                <RecurringScorecard kind="quarterly" title="Quarterly to-do scorecard" recurring={recurring} />
-              </div>
+              <ToDoTasks daily={daily} recurring={recurring} person={todoPerson} onPerson={setTodoPerson} />
             )}
 
             {tab === "Planned vs Actual" && (
@@ -796,169 +790,191 @@ function PerformanceTable({ data, onSelect }) {
   );
 }
 
-function DailyScorecard({ data }) {
-  const [q, setQ] = useState("");
-  const [open, setOpen] = useState(true);
-  if (!data) return <Panel><p className="text-sm text-gray-500">Loading daily tracker…</p></Panel>;
-  if (data.error) {
-    return (
-      <Panel>
-        <p className="font-semibold text-amber-600 dark:text-amber-400 mb-1">Daily tracker not ready</p>
-        <p className="text-sm text-gray-500">{data.message || "Run supabase/daily.sql, then sync."}</p>
-      </Panel>
+// ====================== To-Do Tasks (by person) ======================
+// One searchable person picker; once a person is chosen, ALL their to-do
+// cadences are shown stacked vertically — Daily → Weekly → Bi-Weekly →
+// Monthly → Bi-Monthly → Quarterly — each with its own average score.
+// Score = completed ÷ opportunities (recurring counts ON-TIME only).
+const RECURRING_SECTIONS = [
+  { kind: "weekly", title: "Weekly" },
+  { kind: "biweekly", title: "Bi-Weekly" },
+  { kind: "monthly", title: "Monthly" },
+  { kind: "bimonthly", title: "Bi-Monthly" },
+  { kind: "quarterly", title: "Quarterly" },
+];
+
+function ToDoTasks({ daily, recurring, person, onPerson }) {
+  // union of every person across the daily roster + all recurring cadences
+  const people = useMemo(() => {
+    const set = new Set();
+    (daily && daily.rows ? daily.rows : []).forEach((r) => r.person && set.add(r.person));
+    RECURRING_SECTIONS.forEach(({ kind }) =>
+      ((recurring && recurring[kind] && recurring[kind].rows) || []).forEach((r) => r.person && set.add(r.person))
     );
-  }
-  const rows = data.rows || [];
-  const weekDates = data.weekDates || [];
-  const labels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-  const todayStr = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+    return [...set].sort((a, b) => a.localeCompare(b));
+  }, [daily, recurring]);
 
-  const s = q.trim().toLowerCase();
-  const filtered = s
-    ? rows.filter((r) => (r.person || "").toLowerCase().includes(s) || (r.task || "").toLowerCase().includes(s))
-    : rows;
-
-  // group tasks under each person
-  const byPerson = {};
-  for (const r of filtered) (byPerson[r.person] = byPerson[r.person] || []).push(r);
-  const people = Object.keys(byPerson).sort((a, b) => a.localeCompare(b));
-
-  function cell(date, done) {
-    if (done) return "bg-green-100 text-green-700 dark:bg-green-950/50 dark:text-green-400"; // ticked
-    if (date < todayStr) return "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-400"; // missed (past)
-    return "bg-gray-100 text-gray-400 dark:bg-gray-800 dark:text-gray-600"; // upcoming
-  }
+  const loading = !daily || !recurring;
 
   return (
     <Panel>
-      <div onClick={() => setOpen((o) => !o)} className="flex items-center gap-2 cursor-pointer select-none mb-1">
-        <span className="text-gray-400 text-xs w-3 inline-block">{open ? "▾" : "▸"}</span>
-        <h2 className="font-semibold text-sm">Daily to-do scorecard — target 6/week (Mon–Sat)</h2>
-      </div>
-      {open && (
-        <>
+      <h2 className="font-semibold text-sm mb-1">To-Do scorecard by person</h2>
       <p className="text-xs text-gray-400 mb-3">
-        Each daily task should be ticked once per working day. ✓ = done · ✗ = missed · grey = upcoming.{" "}
-        {data.from && data.to ? `Week ${data.from} → ${data.to} (IST).` : ""}{" "}
-        {data.lastSynced ? `Last daily sync ${new Date(data.lastSynced).toLocaleString()}.` : ""}
+        Pick a person to see all their to-do cadences in one place. Each section shows an{" "}
+        <span className="font-semibold">average score = completed ÷ opportunities</span> — daily is ticks ÷ (tasks ×
+        6 days); the rest are on-time ticks ÷ (tasks × periods).
       </p>
-      <input
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
-        placeholder="Search person or task…"
-        className="filter-input mb-3 max-w-xs"
-      />
-      {people.length === 0 && (
-        <p className="py-6 text-center text-gray-400">
-          No daily tasks found. Run the daily sync, and make sure tasks in each To-Do board's DAILY section are assigned in Asana.
+
+      <div className="max-w-xs mb-4">
+        <SearchableSelect label="Person" value={person || "— Select a person —"} onChange={onPerson} options={people} />
+      </div>
+
+      {loading && <p className="text-sm text-gray-500">Loading scorecards…</p>}
+
+      {!loading && !person && (
+        <p className="py-8 text-center text-gray-400 text-sm">
+          Search and select a person above to view their daily → quarterly scorecard.
         </p>
       )}
-      <div className="space-y-5 max-h-[75vh] overflow-y-auto">
-        {people.map((person) => {
-          const tasks = byPerson[person];
-          const totalDone = tasks.reduce((a, t) => a + (t.done || 0), 0);
-          const totalTarget = tasks.length * 6;
-          return (
-            <div key={person}>
-              <div className="flex items-center gap-2 mb-1.5">
-                <span className="w-7 h-7 rounded-full bg-indigo-100 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-300 flex items-center justify-center text-xs font-semibold">
-                  {initials(person)}
-                </span>
-                <span className="font-medium text-sm">{person}</span>
-                <span className="text-xs text-gray-400">
-                  {tasks.length} daily task{tasks.length > 1 ? "s" : ""} · {totalDone}/{totalTarget} this week
-                </span>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-left text-[11px] uppercase tracking-wide text-gray-400 border-b border-gray-200 dark:border-gray-800">
-                      <th className="py-1.5 px-2">Daily task</th>
-                      {labels.map((l, i) => (
-                        <th key={l} className="py-1.5 px-1 text-center w-10" title={weekDates[i]}>
-                          {l}
-                        </th>
-                      ))}
-                      <th className="py-1.5 px-2 text-center">Done</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {tasks.map((t) => {
-                      const dates = t.dates || [];
-                      return (
-                        <tr key={t.task_gid} className="border-b border-gray-100 dark:border-gray-900">
-                          <td className="py-1.5 px-2">{t.task}</td>
-                          {weekDates.map((d) => {
-                            const done = dates.includes(d);
-                            return (
-                              <td key={d} className="py-1.5 px-1 text-center">
-                                <span
-                                  className={`inline-flex items-center justify-center w-6 h-6 rounded-md text-xs font-bold ${cell(d, done)}`}
-                                  title={d}
-                                >
-                                  {done ? "✓" : d < todayStr ? "✗" : "·"}
-                                </span>
-                              </td>
-                            );
-                          })}
-                          <td className="py-1.5 px-2 text-center">
-                            <span
-                              className={`inline-block px-2 py-1 rounded-md text-xs font-semibold ${
-                                t.done >= 6 ? pctBadge(100) : t.done >= 4 ? pctBadge(60) : pctBadge(0)
-                              }`}
-                            >
-                              {t.done}/6
-                            </span>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-        </>
+
+      {!loading && person && (
+        <div className="space-y-6 max-h-[78vh] overflow-y-auto pr-1">
+          <div className="flex items-center gap-2">
+            <span className="w-9 h-9 rounded-full bg-indigo-100 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-300 flex items-center justify-center text-sm font-semibold">
+              {initials(person)}
+            </span>
+            <span className="font-semibold text-base">{person}</span>
+          </div>
+
+          <DailyPersonSection daily={daily} person={person} />
+          {RECURRING_SECTIONS.map(({ kind, title }) => (
+            <RecurringPersonSection key={kind} kind={kind} title={title} recurring={recurring} person={person} />
+          ))}
+        </div>
       )}
     </Panel>
   );
 }
 
-function RecurringScorecard({ kind, title, recurring, defaultOpen = false }) {
-  const [q, setQ] = useState("");
-  const [open, setOpen] = useState(defaultOpen);
-  if (!recurring) {
+// Shared shell: section title + average-score badge + task count, then a table.
+function SectionShell({ title, avg, count, children }) {
+  return (
+    <div className="border-t border-gray-100 dark:border-gray-900 pt-4">
+      <div className="flex items-center gap-2 mb-2">
+        <h3 className="font-semibold text-sm">{title}</h3>
+        {avg != null ? (
+          <span className={`inline-block px-2 py-0.5 rounded-md text-xs font-semibold ${pctBadge(avg)}`}>
+            {avg}% avg
+          </span>
+        ) : (
+          <span className="text-xs text-gray-400">no score</span>
+        )}
+        <span className="text-xs text-gray-400">
+          {count} task{count === 1 ? "" : "s"}
+        </span>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function DailyPersonSection({ daily, person }) {
+  if (daily && daily.error) {
     return (
-      <Panel>
-        <p className="text-sm text-gray-500">Loading {kind} tracker…</p>
-      </Panel>
+      <SectionShell title="Daily" avg={null} count={0}>
+        <p className="text-xs text-amber-600 dark:text-amber-400">{daily.message || "Daily tracker not ready."}</p>
+      </SectionShell>
     );
   }
-  if (recurring.error) {
+  const weekDates = (daily && daily.weekDates) || [];
+  const labels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const todayStr = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+  const tasks = ((daily && daily.rows) || []).filter((r) => r.person === person);
+
+  // Average = total ticks ÷ (tasks × 6 working days). Equals the mean of each day's completion rate.
+  const totalDone = tasks.reduce((a, t) => a + (t.done || 0), 0);
+  const totalTarget = tasks.length * 6;
+  const avg = totalTarget ? Math.round((100 * totalDone) / totalTarget) : null;
+
+  const cell = (date, done) => {
+    if (done) return "bg-green-100 text-green-700 dark:bg-green-950/50 dark:text-green-400";
+    if (date < todayStr) return "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-400";
+    return "bg-gray-100 text-gray-400 dark:bg-gray-800 dark:text-gray-600";
+  };
+
+  return (
+    <SectionShell title="Daily" avg={avg} count={tasks.length}>
+      {tasks.length === 0 ? (
+        <p className="text-xs text-gray-400">No daily tasks.</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-[11px] uppercase tracking-wide text-gray-400 border-b border-gray-200 dark:border-gray-800">
+                <th className="py-1.5 px-2">Daily task</th>
+                {labels.map((l, i) => (
+                  <th key={l} className="py-1.5 px-1 text-center w-10" title={weekDates[i]}>
+                    {l}
+                  </th>
+                ))}
+                <th className="py-1.5 px-2 text-center">Done</th>
+              </tr>
+            </thead>
+            <tbody>
+              {tasks.map((t) => {
+                const dates = t.dates || [];
+                return (
+                  <tr key={t.task_gid} className="border-b border-gray-100 dark:border-gray-900">
+                    <td className="py-1.5 px-2">{t.task}</td>
+                    {weekDates.map((d) => {
+                      const done = dates.includes(d);
+                      return (
+                        <td key={d} className="py-1.5 px-1 text-center">
+                          <span
+                            className={`inline-flex items-center justify-center w-6 h-6 rounded-md text-xs font-bold ${cell(d, done)}`}
+                            title={d}
+                          >
+                            {done ? "✓" : d < todayStr ? "✗" : "·"}
+                          </span>
+                        </td>
+                      );
+                    })}
+                    <td className="py-1.5 px-2 text-center">
+                      <span
+                        className={`inline-block px-2 py-1 rounded-md text-xs font-semibold ${
+                          t.done >= 6 ? pctBadge(100) : t.done >= 4 ? pctBadge(60) : pctBadge(0)
+                        }`}
+                      >
+                        {t.done}/6
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </SectionShell>
+  );
+}
+
+function RecurringPersonSection({ kind, title, recurring, person }) {
+  if (recurring && recurring.error) {
     return (
-      <Panel>
-        <p className="font-semibold text-amber-600 dark:text-amber-400 mb-1">{title} — not ready</p>
-        <p className="text-sm text-gray-500">{recurring.message || "Run supabase/recurring.sql, then sync."}</p>
-      </Panel>
+      <SectionShell title={title} avg={null} count={0}>
+        <p className="text-xs text-amber-600 dark:text-amber-400">{recurring.message || "Recurring tracker not ready."}</p>
+      </SectionShell>
     );
   }
-  const data = recurring[kind] || { periods: [], rows: [] };
+  const data = (recurring && recurring[kind]) || { periods: [], rows: [] };
   const periods = data.periods || [];
-  const rows = data.rows || [];
-  const unitMany =
-    { weekly: "weeks", biweekly: "fortnights", monthly: "months", bimonthly: "2-month blocks", quarterly: "quarters" }[kind] ||
-    "periods";
+  const tasks = (data.rows || []).filter((r) => r.person === person);
 
-  const s = q.trim().toLowerCase();
-  const filtered = s
-    ? rows.filter((r) => (r.person || "").toLowerCase().includes(s) || (r.task || "").toLowerCase().includes(s))
-    : rows;
-
-  const byPerson = {};
-  for (const r of filtered) (byPerson[r.person] = byPerson[r.person] || []).push(r);
-  const people = Object.keys(byPerson).sort((a, b) => a.localeCompare(b));
+  // Average = on-time ticks ÷ (scorable tasks × periods). Tasks with no due date are excluded.
+  const totalDone = tasks.reduce((a, t) => a + (t.done || 0), 0);
+  const totalCells = tasks.reduce((a, t) => a + (t.has_due ? periods.length : 0), 0);
+  const avg = totalCells ? Math.round((100 * totalDone) / totalCells) : null;
 
   const cellCls = (v) =>
     v === "on_time"
@@ -969,115 +985,74 @@ function RecurringScorecard({ kind, title, recurring, defaultOpen = false }) {
   const glyph = (v) => (v === "on_time" ? "✓" : v === "missed" ? "✗" : "·");
 
   return (
-    <Panel>
-      <div onClick={() => setOpen((o) => !o)} className="flex items-center gap-2 cursor-pointer select-none mb-1">
-        <span className="text-gray-400 text-xs w-3 inline-block">{open ? "▾" : "▸"}</span>
-        <h2 className="font-semibold text-sm">
-          {title} — on time vs missed (last {periods.length} {unitMany})
-        </h2>
-      </div>
-      {open && (
-        <>
-      <p className="text-xs text-gray-400 mb-3">
-        Ticked on or before its due date = ✓ on time · missed (or done late) = ✗ · not due yet = grey.{" "}
-        {recurring.lastSynced ? `Last sync ${new Date(recurring.lastSynced).toLocaleString()}.` : ""}
-      </p>
-      <input
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
-        placeholder="Search person or task…"
-        className="filter-input mb-3 max-w-xs"
-      />
-      {people.length === 0 && (
-        <p className="py-6 text-center text-gray-400">
-          No tasks found for this cadence. Run the recurring sync, and make sure these tasks are assigned in Asana.
-        </p>
+    <SectionShell title={title} avg={avg} count={tasks.length}>
+      {tasks.length === 0 ? (
+        <p className="text-xs text-gray-400">No {title.toLowerCase()} tasks.</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-[11px] uppercase tracking-wide text-gray-400 border-b border-gray-200 dark:border-gray-800">
+                <th className="py-1.5 px-2">Task</th>
+                {periods.map((p) => (
+                  <th key={p} className="py-1.5 px-1 text-center w-14">
+                    {p}
+                  </th>
+                ))}
+                <th className="py-1.5 px-2 text-center">On time</th>
+              </tr>
+            </thead>
+            <tbody>
+              {tasks.map((t) => (
+                <tr key={t.task_gid} className="border-b border-gray-100 dark:border-gray-900">
+                  <td className="py-1.5 px-2">
+                    {t.task}
+                    {!t.has_due && (
+                      <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400">
+                        no due date
+                      </span>
+                    )}
+                  </td>
+                  {t.has_due ? (
+                    t.cells.map((v, i) => (
+                      <td key={i} className="py-1.5 px-1 text-center">
+                        <span
+                          className={`inline-flex items-center justify-center w-6 h-6 rounded-md text-xs font-bold ${cellCls(v)}`}
+                          title={periods[i]}
+                        >
+                          {glyph(v)}
+                        </span>
+                      </td>
+                    ))
+                  ) : (
+                    <td className="py-1.5 px-1 text-center text-gray-400" colSpan={periods.length}>
+                      —
+                    </td>
+                  )}
+                  <td className="py-1.5 px-2 text-center">
+                    {t.has_due ? (
+                      <span
+                        className={`inline-block px-2 py-1 rounded-md text-xs font-semibold ${
+                          t.done >= periods.length
+                            ? pctBadge(100)
+                            : t.done >= Math.ceil(periods.length / 2)
+                            ? pctBadge(60)
+                            : pctBadge(0)
+                        }`}
+                      >
+                        {t.done}/{periods.length}
+                      </span>
+                    ) : (
+                      <span className="text-gray-400 text-xs">—</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
-      <div className="space-y-5">
-        {people.map((person) => {
-          const tasks = byPerson[person];
-          const totalDone = tasks.reduce((a, t) => a + (t.done || 0), 0);
-          const totalCells = tasks.reduce((a, t) => a + (t.has_due ? periods.length : 0), 0);
-          return (
-            <div key={person}>
-              <div className="flex items-center gap-2 mb-1.5">
-                <span className="w-7 h-7 rounded-full bg-indigo-100 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-300 flex items-center justify-center text-xs font-semibold">
-                  {initials(person)}
-                </span>
-                <span className="font-medium text-sm">{person}</span>
-                <span className="text-xs text-gray-400">
-                  {tasks.length} task{tasks.length > 1 ? "s" : ""} · {totalDone}/{totalCells} on time
-                </span>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-left text-[11px] uppercase tracking-wide text-gray-400 border-b border-gray-200 dark:border-gray-800">
-                      <th className="py-1.5 px-2">Task</th>
-                      {periods.map((p) => (
-                        <th key={p} className="py-1.5 px-1 text-center w-14">
-                          {p}
-                        </th>
-                      ))}
-                      <th className="py-1.5 px-2 text-center">On time</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {tasks.map((t) => (
-                      <tr key={t.task_gid} className="border-b border-gray-100 dark:border-gray-900">
-                        <td className="py-1.5 px-2">
-                          {t.task}
-                          {!t.has_due && (
-                            <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400">
-                              no due date
-                            </span>
-                          )}
-                        </td>
-                        {t.has_due ? (
-                          t.cells.map((v, i) => (
-                            <td key={i} className="py-1.5 px-1 text-center">
-                              <span
-                                className={`inline-flex items-center justify-center w-6 h-6 rounded-md text-xs font-bold ${cellCls(v)}`}
-                                title={periods[i]}
-                              >
-                                {glyph(v)}
-                              </span>
-                            </td>
-                          ))
-                        ) : (
-                          <td className="py-1.5 px-1 text-center text-gray-400" colSpan={periods.length}>
-                            —
-                          </td>
-                        )}
-                        <td className="py-1.5 px-2 text-center">
-                          {t.has_due ? (
-                            <span
-                              className={`inline-block px-2 py-1 rounded-md text-xs font-semibold ${
-                                t.done >= periods.length
-                                  ? pctBadge(100)
-                                  : t.done >= Math.ceil(periods.length / 2)
-                                  ? pctBadge(60)
-                                  : pctBadge(0)
-                              }`}
-                            >
-                              {t.done}/{periods.length}
-                            </span>
-                          ) : (
-                            <span className="text-gray-400 text-xs">—</span>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-        </>
-      )}
-    </Panel>
+    </SectionShell>
   );
 }
 
@@ -1214,8 +1189,9 @@ function PlannedActualTable({ data, from, to, onFrom, onTo }) {
       on_time: a.on_time + r.on_time,
       late: a.late + r.late,
       not_done: a.not_done + r.not_done,
+      revised: a.revised + (r.revised || 0),
     }),
-    { planned: 0, on_time: 0, late: 0, not_done: 0 }
+    { planned: 0, on_time: 0, late: 0, not_done: 0, revised: 0 }
   );
 
   return (
@@ -1224,7 +1200,9 @@ function PlannedActualTable({ data, from, to, onFrom, onTo }) {
       <p className="text-xs text-gray-400 mb-3">
         <span className="font-semibold">Planned</span> = one-time tasks whose <span className="font-semibold">due date</span> falls
         in the range below (empty = all time). <span className="font-semibold">Actual (On-Time)</span> = completed on or before
-        the due date. Score: 0% = everything done on time · −100% = nothing on time. Worst first.
+        the due date. Score: 0% = everything done on time · −100% = nothing on time. Worst first.{" "}
+        <span className="font-semibold">Revised</span> = tasks whose due date was pushed more than 7 days from the original
+        (same as One-Time).
       </p>
 
       <div className="flex flex-wrap items-end gap-3 mb-4">
@@ -1265,7 +1243,7 @@ function PlannedActualTable({ data, from, to, onFrom, onTo }) {
           <p className="text-xs text-gray-400 mb-2">
             {filtered.length} people · planned {totals.planned.toLocaleString()} · on-time{" "}
             {totals.on_time.toLocaleString()} · late {totals.late.toLocaleString()} · not done{" "}
-            {totals.not_done.toLocaleString()}
+            {totals.not_done.toLocaleString()} · revised {totals.revised.toLocaleString()}
           </p>
           <div className="overflow-x-auto max-h-[70vh]">
             <table className="w-full text-sm">
@@ -1276,13 +1254,14 @@ function PlannedActualTable({ data, from, to, onFrom, onTo }) {
                   <th className="py-2.5 px-2">On-Time (Actual)</th>
                   <th className="py-2.5 px-2">Late</th>
                   <th className="py-2.5 px-2">Not Done</th>
+                  <th className="py-2.5 px-2">Revised</th>
                   <th className="py-2.5 px-2">Score</th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="py-6 text-center text-gray-400">
+                    <td colSpan={7} className="py-6 text-center text-gray-400">
                       No one-time tasks with a due date in this range.
                     </td>
                   </tr>
@@ -1294,6 +1273,7 @@ function PlannedActualTable({ data, from, to, onFrom, onTo }) {
                     <td className="py-2.5 px-2 text-green-600 dark:text-green-400">{r.on_time}</td>
                     <td className="py-2.5 px-2 text-red-600 dark:text-red-400">{r.late}</td>
                     <td className="py-2.5 px-2 text-amber-600 dark:text-amber-400">{r.not_done}</td>
+                    <td className="py-2.5 px-2 text-orange-600 dark:text-orange-400">{r.revised ?? 0}</td>
                     <td className="py-2.5 px-2">
                       <span className={`inline-block px-2 py-1 rounded-md text-xs font-semibold ${scoreBadge(r.score)}`}>
                         {r.score}%

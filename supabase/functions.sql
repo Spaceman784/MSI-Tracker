@@ -152,7 +152,8 @@ returns jsonb language sql stable as $$
       count(*) as planned,
       count(*) filter (where completed and completed_at is not null and completed_at::date <= due_on) as on_time,
       count(*) filter (where completed and completed_at is not null and completed_at::date >  due_on) as late,
-      count(*) filter (where not completed) as not_done
+      count(*) filter (where not completed) as not_done,
+      count(*) filter (where original_due_on is not null and due_on is not null and abs(due_on - original_due_on) > 7) as revised
     from mis_tasks
     where is_one_time
       and coalesce(archived, false) = false
@@ -163,7 +164,7 @@ returns jsonb language sql stable as $$
     having count(*) > 0
   )
   select coalesce(jsonb_agg(jsonb_build_object(
-    'assignee', assignee, 'planned', planned, 'on_time', on_time, 'late', late, 'not_done', not_done,
+    'assignee', assignee, 'planned', planned, 'on_time', on_time, 'late', late, 'not_done', not_done, 'revised', revised,
     'score', coalesce(round(100.0 * on_time / nullif(planned, 0)), 0) - 100
   ) order by coalesce(round(100.0 * on_time / nullif(planned, 0)), 0) - 100 asc), '[]'::jsonb)
   from p;
