@@ -862,10 +862,10 @@ function ToDoTasks({ daily, recurring, person, onPerson }) {
 }
 
 // Shared shell: section title + average-score badge + task count, then a table.
-function SectionShell({ title, avg, count, done, total, children }) {
+function SectionShell({ title, avg, count, done, total, note, children }) {
   return (
     <div className="border-t border-gray-100 dark:border-gray-900 pt-4">
-      <div className="flex flex-wrap items-center gap-3 mb-3">
+      <div className="flex flex-wrap items-center gap-3 mb-1">
         <h3 className="font-semibold text-base">{title}</h3>
         {avg != null ? (
           <span
@@ -881,6 +881,8 @@ function SectionShell({ title, avg, count, done, total, children }) {
           {count} task{count === 1 ? "" : "s"}
         </span>
       </div>
+      {note && <p className="text-base text-gray-400 italic mb-3">📅 {note}</p>}
+      {!note && <div className="mb-3" />}
       {children}
     </div>
   );
@@ -899,10 +901,16 @@ function DailyPersonSection({ daily, person }) {
   const todayStr = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
   const tasks = ((daily && daily.rows) || []).filter((r) => r.person === person);
 
-  // Average = total ticks ÷ (tasks × 6 working days). Equals the mean of each day's completion rate.
-  const totalDone = tasks.reduce((a, t) => a + (t.done || 0), 0);
-  const totalTarget = tasks.length * 6;
-  const avg = totalTarget ? Math.round((100 * totalDone) / totalTarget) : null;
+  // Average = YESTERDAY's score (one day prior). On Monday, shows Saturday (skip Sunday).
+  const todayDate = new Date(todayStr + "T00:00:00Z");
+  const dow = todayDate.getUTCDay(); // 0=Sun, 1=Mon, ..., 6=Sat
+  const daysBack = dow === 1 ? 2 : 1; // Monday → go back 2 days to Saturday
+  const refDate = new Date(todayDate);
+  refDate.setUTCDate(todayDate.getUTCDate() - daysBack);
+  const refStr = refDate.toISOString().slice(0, 10);
+  const todayDone = tasks.filter((t) => (t.dates || []).includes(refStr)).length;
+  const totalTasks = tasks.length;
+  const avg = totalTasks ? Math.round((100 * todayDone) / totalTasks) : null;
 
   const cell = (date, done) => {
     if (done) return "bg-green-100 text-green-700 dark:bg-green-950/50 dark:text-green-400";
@@ -911,7 +919,7 @@ function DailyPersonSection({ daily, person }) {
   };
 
   return (
-    <SectionShell title="Daily" avg={avg} count={tasks.length} done={totalDone} total={totalTarget}>
+    <SectionShell title="Daily" avg={avg} count={tasks.length} done={todayDone} total={totalTasks} note="Showing previous day's score">
       {tasks.length === 0 ? (
         <p className="text-xs text-gray-400">No daily tasks.</p>
       ) : (
@@ -978,10 +986,11 @@ function RecurringPersonSection({ kind, title, recurring, person }) {
   const periods = data.periods || [];
   const tasks = (data.rows || []).filter((r) => r.person === person);
 
-  // Average = on-time ticks ÷ (scorable tasks × periods). Tasks with no due date are excluded.
-  const totalDone = tasks.reduce((a, t) => a + (t.done || 0), 0);
-  const totalCells = tasks.reduce((a, t) => a + (t.has_due ? periods.length : 0), 0);
-  const avg = totalCells ? Math.round((100 * totalDone) / totalCells) : null;
+  // Average = PREVIOUS period (second-to-last column): the last fully completed period.
+  const prevIdx = Math.max(0, periods.length - 2);
+  const currentDone = tasks.filter((t) => t.has_due && (t.cells || [])[prevIdx] === "on_time").length;
+  const currentTotal = tasks.filter((t) => t.has_due).length;
+  const avg = currentTotal ? Math.round((100 * currentDone) / currentTotal) : null;
 
   const cellCls = (v) =>
     v === "on_time"
@@ -992,7 +1001,7 @@ function RecurringPersonSection({ kind, title, recurring, person }) {
   const glyph = (v) => (v === "on_time" ? "✓" : v === "missed" ? "✗" : "·");
 
   return (
-    <SectionShell title={title} avg={avg} count={tasks.length} done={totalDone} total={totalCells}>
+    <SectionShell title={title} avg={avg} count={tasks.length} done={currentDone} total={currentTotal} note={`Showing previous ${title.toLowerCase()}'s score`}>
       {tasks.length === 0 ? (
         <p className="text-xs text-gray-400">No {title.toLowerCase()} tasks.</p>
       ) : (
