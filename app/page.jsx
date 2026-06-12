@@ -12,7 +12,7 @@ export default function Dashboard() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState(null);
-  const [tab, setTab] = useState("Overview");
+  const [tab, setTab] = useState("One Time Tasks");
   const [dark, setDark] = useState(false);
   const [username, setUsername] = useState("");
   const [role, setRole] = useState("user");
@@ -52,7 +52,7 @@ export default function Dashboard() {
           setRole(me.role || "user");
         }
       })
-      .catch(() => {});
+      .catch(() => { });
   }, []);
 
   const query = useMemo(() => {
@@ -127,7 +127,7 @@ export default function Dashboard() {
           setErr(null);
         }
       })
-      .catch(() => {});
+      .catch(() => { });
   }, [refreshTick]);
 
   // load the Activity feed when the tab is open (and on each refresh tick)
@@ -139,7 +139,7 @@ export default function Dashboard() {
       .then((j) => {
         if (!cancelled && j) setActivity(j);
       })
-      .catch(() => {});
+      .catch(() => { });
     return () => {
       cancelled = true;
     };
@@ -157,7 +157,7 @@ export default function Dashboard() {
       .then((j) => {
         if (!cancelled) setPerformance(j);
       })
-      .catch(() => {});
+      .catch(() => { });
     return () => {
       cancelled = true;
     };
@@ -175,7 +175,7 @@ export default function Dashboard() {
       .then((j) => {
         if (!cancelled) setPlanned(j);
       })
-      .catch(() => {});
+      .catch(() => { });
     return () => {
       cancelled = true;
     };
@@ -228,7 +228,7 @@ export default function Dashboard() {
     document.documentElement.classList.toggle("dark", next);
     try {
       localStorage.setItem("mis-theme", next ? "dark" : "light");
-    } catch {}
+    } catch { }
   }
 
   async function logout() {
@@ -359,11 +359,10 @@ export default function Dashboard() {
             <button
               key={t}
               onClick={() => setTab(t)}
-              className={`px-4 py-2 rounded-full text-sm font-medium border transition ${
-                tab === t
+              className={`px-4 py-2 rounded-full text-sm font-medium border transition ${tab === t
                   ? "bg-indigo-600 text-white border-indigo-600 shadow"
                   : "bg-white dark:bg-[#141414] border-gray-200 dark:border-gray-800 hover:border-indigo-400"
-              }`}
+                }`}
             >
               {t}
             </button>
@@ -592,9 +591,8 @@ function SearchableSelect({ label, value, onChange, options }) {
                     setOpen(false);
                     setQ("");
                   }}
-                  className={`w-full text-left px-3 py-1.5 text-sm hover:bg-indigo-50 dark:hover:bg-[#1a1a1a] truncate ${
-                    o === value ? "text-indigo-600 dark:text-indigo-400 font-semibold" : ""
-                  }`}
+                  className={`w-full text-left px-3 py-1.5 text-sm hover:bg-indigo-50 dark:hover:bg-[#1a1a1a] truncate ${o === value ? "text-indigo-600 dark:text-indigo-400 font-semibold" : ""
+                    }`}
                 >
                   {o}
                 </button>
@@ -951,9 +949,8 @@ function DailyPersonSection({ daily, person }) {
                     })}
                     <td className="py-1.5 px-2 text-center">
                       <span
-                        className={`inline-block px-2 py-1 rounded-md text-xs font-semibold ${
-                          t.done >= 6 ? pctBadge(100) : t.done >= 4 ? pctBadge(60) : pctBadge(0)
-                        }`}
+                        className={`inline-block px-2 py-1 rounded-md text-xs font-semibold ${t.done >= 6 ? pctBadge(100) : t.done >= 4 ? pctBadge(60) : pctBadge(0)
+                          }`}
                       >
                         {t.done}/6
                       </span>
@@ -990,8 +987,8 @@ function RecurringPersonSection({ kind, title, recurring, person }) {
     v === "on_time"
       ? "bg-green-100 text-green-700 dark:bg-green-950/50 dark:text-green-400"
       : v === "missed"
-      ? "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-400"
-      : "bg-gray-100 text-gray-400 dark:bg-gray-800 dark:text-gray-600";
+        ? "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-400"
+        : "bg-gray-100 text-gray-400 dark:bg-gray-800 dark:text-gray-600";
   const glyph = (v) => (v === "on_time" ? "✓" : v === "missed" ? "✗" : "·");
 
   return (
@@ -1042,13 +1039,12 @@ function RecurringPersonSection({ kind, title, recurring, person }) {
                   <td className="py-1.5 px-2 text-center">
                     {t.has_due ? (
                       <span
-                        className={`inline-block px-2 py-1 rounded-md text-xs font-semibold ${
-                          t.done >= periods.length
+                        className={`inline-block px-2 py-1 rounded-md text-xs font-semibold ${t.done >= periods.length
                             ? pctBadge(100)
                             : t.done >= Math.ceil(periods.length / 2)
-                            ? pctBadge(60)
-                            : pctBadge(0)
-                        }`}
+                              ? pctBadge(60)
+                              : pctBadge(0)
+                          }`}
                       >
                         {t.done}/{periods.length}
                       </span>
@@ -1150,33 +1146,33 @@ function PerformancePersonDrawer({ person, tasks, onClose, onSelectTask }) {
                     </tr>
                     {!collapsed[sec] &&
                       groups[sec].map((t) => {
-                      const c = classifyTask(t, today);
-                      const revised =
-                        t.original_due_on && t.due_on && Math.abs(daysBetween(t.original_due_on, t.due_on)) > 7;
-                      return (
-                        <tr
-                          key={t.gid}
-                          onClick={() => onSelectTask && onSelectTask(t.gid)}
-                          className="border-b border-gray-100 dark:border-gray-900 hover:bg-indigo-50 dark:hover:bg-[#1a1a1a] cursor-pointer"
-                        >
-                          <td className="py-2 px-2 max-w-xs truncate" title={t.name}>{t.name}</td>
-                          <td className="py-2 px-2 text-gray-500">{t.created_at ? t.created_at.slice(0, 10) : "—"}</td>
-                          <td className="py-2 px-2 text-gray-500">{t.due_on || "—"}</td>
-                          <td className="py-2 px-2 text-gray-500">{t.completed_at ? t.completed_at.slice(0, 10) : "—"}</td>
-                          <td className="py-2 px-2">
-                            <span className={`inline-block px-2 py-0.5 rounded-md text-xs font-semibold ${c.cls}`}>{c.label}</span>
-                            {c.days && <span className="ml-1.5 text-xs text-gray-400">{c.days}</span>}
-                          </td>
-                          <td className="py-2 px-2">
-                            {revised ? (
-                              <span className="px-2 py-0.5 rounded-md text-xs font-semibold bg-orange-100 text-orange-700 dark:bg-orange-950/50 dark:text-orange-400">🔁 Revised</span>
-                            ) : (
-                              <span className="text-gray-300 dark:text-gray-700">—</span>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
+                        const c = classifyTask(t, today);
+                        const revised =
+                          t.original_due_on && t.due_on && Math.abs(daysBetween(t.original_due_on, t.due_on)) > 7;
+                        return (
+                          <tr
+                            key={t.gid}
+                            onClick={() => onSelectTask && onSelectTask(t.gid)}
+                            className="border-b border-gray-100 dark:border-gray-900 hover:bg-indigo-50 dark:hover:bg-[#1a1a1a] cursor-pointer"
+                          >
+                            <td className="py-2 px-2 max-w-xs truncate" title={t.name}>{t.name}</td>
+                            <td className="py-2 px-2 text-gray-500">{t.created_at ? t.created_at.slice(0, 10) : "—"}</td>
+                            <td className="py-2 px-2 text-gray-500">{t.due_on || "—"}</td>
+                            <td className="py-2 px-2 text-gray-500">{t.completed_at ? t.completed_at.slice(0, 10) : "—"}</td>
+                            <td className="py-2 px-2">
+                              <span className={`inline-block px-2 py-0.5 rounded-md text-xs font-semibold ${c.cls}`}>{c.label}</span>
+                              {c.days && <span className="ml-1.5 text-xs text-gray-400">{c.days}</span>}
+                            </td>
+                            <td className="py-2 px-2">
+                              {revised ? (
+                                <span className="px-2 py-0.5 rounded-md text-xs font-semibold bg-orange-100 text-orange-700 dark:bg-orange-950/50 dark:text-orange-400">🔁 Revised</span>
+                              ) : (
+                                <span className="text-gray-300 dark:text-gray-700">—</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
                   </Fragment>
                 ))}
               </tbody>
@@ -1310,9 +1306,8 @@ function ActivityFeed({ data, onSelect }) {
   const Item = ({ t, date, onClick }) => (
     <li
       onClick={onClick}
-      className={`py-2.5 border-b border-gray-100 dark:border-gray-900 last:border-0 ${
-        onClick ? "cursor-pointer hover:bg-indigo-50 dark:hover:bg-[#1a1a1a] -mx-2 px-2 rounded" : ""
-      }`}
+      className={`py-2.5 border-b border-gray-100 dark:border-gray-900 last:border-0 ${onClick ? "cursor-pointer hover:bg-indigo-50 dark:hover:bg-[#1a1a1a] -mx-2 px-2 rounded" : ""
+        }`}
     >
       <p className="font-medium text-sm truncate" title={t.name}>{t.name}</p>
       <p className="text-xs text-gray-400 mt-0.5">
@@ -1392,11 +1387,10 @@ function TaskDetailDrawer({ open, loading, detail, onClose }) {
           <div className="p-5 space-y-5 text-sm">
             <div className="flex flex-wrap gap-2">
               <span
-                className={`px-2 py-1 rounded-md text-xs font-semibold ${
-                  t.completed
+                className={`px-2 py-1 rounded-md text-xs font-semibold ${t.completed
                     ? "bg-green-100 text-green-700 dark:bg-green-950/50 dark:text-green-400"
                     : "bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-400"
-                }`}
+                  }`}
               >
                 {t.completed ? "Completed" : "Open"}
               </span>
@@ -1551,8 +1545,8 @@ function TaskTable({ tasks, today, page, pages, total, onPage, onSelect }) {
               const cls = t.completed
                 ? "bg-green-100 text-green-700 dark:bg-green-950/50 dark:text-green-400"
                 : overdue
-                ? "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-400"
-                : "bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-400";
+                  ? "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-400"
+                  : "bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-400";
               return (
                 <tr
                   key={t.gid}
