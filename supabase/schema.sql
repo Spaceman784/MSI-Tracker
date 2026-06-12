@@ -38,6 +38,10 @@ alter table mis_tasks add column if not exists is_one_time boolean default false
 alter table mis_tasks add column if not exists projects jsonb;
 alter table mis_tasks add column if not exists sections jsonb;
 alter table mis_tasks add column if not exists own_section text;
+-- Project gids a task was seen in during a sync — powers SAFE pruning: a task is
+-- deleted only if EVERY project it lives in was fetched cleanly that run, so a
+-- partial fetch (rate-limited projects) can never wipe thousands of live tasks.
+alter table mis_tasks add column if not exists project_gids jsonb;
 create index if not exists idx_mis_tasks_assignee  on mis_tasks(assignee);
 create index if not exists idx_mis_tasks_project    on mis_tasks(project);
 create index if not exists idx_mis_tasks_completed  on mis_tasks(completed);

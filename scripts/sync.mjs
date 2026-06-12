@@ -6,7 +6,7 @@
 // Takes several minutes for large workspaces (Asana rate limits).
 
 import { createClient } from "@supabase/supabase-js";
-import { fetchWorkspaceData } from "../lib/asana.js";
+import { fetchWorkspaceData, taskExists } from "../lib/asana.js";
 
 const url = process.env.SUPABASE_URL;
 const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -101,6 +101,7 @@ for (const t of d.tasks) {
       one_time_section: oneTimeSection(t.assignee, t.memberships),
       own_section: ownSection(t.assignee, t.memberships),
       archived: t.archived || false,
+      project_gids: t.projectGids || [], // which projects this task was seen in (safe-prune provenance)
       synced_at: runStart,
     });
   }
@@ -157,46 +158,189 @@ if (archProbe.error && /archived/i.test(archProbe.error.message)) {
   for (const r of rows) delete r.archived;
 }
 
+// project_gids column — provenance for SAFE pruning. If missing, we fall back to
+// "only delete on a fully-complete fetch" (still safe). Run the SQL to enable
+// precise per-project pruning.
+let hasProjectGids = true;
+const pgProbe = await sb.from("mis_tasks").select("project_gids").limit(1);
+if (pgProbe.error && /project_gids/i.test(pgProbe.error.message)) {
+  hasProjectGids = false;
+  console.log("ℹ 'project_gids' column not found — precise pruning disabled until you run the SQL (delete only on complete fetches for now).");
+  for (const r of rows) delete r.project_gids;
+}
+
 const CHUNK = 500;
+let upsertOk = true;
 for (let i = 0; i < rows.length; i += CHUNK) {
   const chunk = rows.slice(i, i + CHUNK);
   const { error } = await sb.from("mis_tasks").upsert(chunk, { onConflict: "gid" });
   if (error) {
     console.error("✗ Upsert error:", error.message);
-    process.exit(1);
+    upsertOk = false;
+    process.exitCode = 1; // fail the run, but keep going so downstream steps still run
+    break; // a partial upsert would make un-upserted rows look "removed" — skip the prune
   }
   console.log(`  upserted ${Math.min(i + CHUNK, rows.length)}/${rows.length}`);
 }
 
-// Tasks not touched this run = removed from Asana since last sync.
-// Log them to mis_changes (for the Activity feed) BEFORE deleting.
-const { data: removedRows, error: selErr } = await sb
-  .from("mis_tasks")
-  .select("gid,name,assignee,project")
-  .lt("synced_at", runStart);
-if (selErr) console.error("⚠ removed-detect error:", selErr.message);
-if (removedRows && removedRows.length) {
-  const changeRows = removedRows.map((r) => ({
-    gid: r.gid,
-    name: r.name,
-    assignee: r.assignee,
-    project: r.project,
-    action: "removed",
-    at: runStart,
-  }));
-  for (let i = 0; i < changeRows.length; i += 500) {
-    const { error } = await sb.from("mis_changes").insert(changeRows.slice(i, i + 500));
-    if (error) {
-      console.error("⚠ change-log error (is mis_changes table created?):", error.message);
-      break;
+// ---- SAFE PRUNE -----------------------------------------------------------
+// Deletion rules, ordered so a partial/buggy fetch can NEVER wipe live tasks:
+//  1. Only prune on a FULLY COMPLETE fetch (every project loaded). On a complete
+//     fetch, a task absent from the DB-vs-fetch diff is genuinely gone; a task
+//     that merely MOVED projects was still seen, so it isn't a candidate. If
+//     anything failed, skip the prune (tasks linger briefly but are never falsely
+//     deleted — the safe direction).
+//  2. Refuse to prune if the project LIST shrank a lot vs last run (guards a
+//     silently-truncated /projects response from masquerading as "complete").
+//  3. Provenance shield: even on a "complete" fetch, never delete a known row
+//     whose project isn't in this run's okSet.
+//  4. Hard safety valve on the delete count; abort (never crash) if it's huge or
+//     if the DB count can't be read.
+if (!upsertOk) {
+  console.warn("⛔ PRUNE SKIPPED — upsert did not fully complete; not deleting this run.");
+} else {
+  const okSet = new Set(d.okProjectGids || []);
+  const failedCount = (d.failedProjects || []).length;
+  if (failedCount) {
+    console.warn(`⚠ ${failedCount}/${d.projectsTotal} projects failed to fetch this run — their tasks are protected.`);
+  }
+
+  // Guard against a silently-truncated project list: compare this run's project
+  // count to the previous run's. A big unexplained drop => treat as incomplete.
+  const { data: ptRow } = await sb.from("mis_meta").select("value").eq("key", "projects_total").maybeSingle();
+  const prevProjectsTotal = ptRow ? Number(ptRow.value) || 0 : 0;
+  const projectListShrank = prevProjectsTotal > 0 && (d.projectsTotal || 0) < prevProjectsTotal * 0.9;
+  if (projectListShrank) {
+    console.warn(
+      `⛔ PRUNE SKIPPED — project list dropped ${prevProjectsTotal} → ${d.projectsTotal} (>10%); refusing to delete on a possibly-truncated fetch.`
+    );
+  }
+
+  const canPrune = d.complete === true && rows.length > 0 && !projectListShrank;
+  if (!canPrune && !projectListShrank) {
+    if (d.complete !== true)
+      console.warn("⛔ PRUNE SKIPPED — fetch not fully complete; no tasks deleted this run (live data preserved).");
+    else if (rows.length === 0) console.warn("⛔ PRUNE SKIPPED — fetch returned 0 tasks; not deleting this run.");
+  }
+
+  // Candidate rows = present in DB but not re-stamped this run (paginated; the
+  // Supabase client caps a single select at 1000 rows).
+  let candidates = [];
+  if (canPrune) {
+    const sel = hasProjectGids ? "gid,name,assignee,project,project_gids" : "gid,name,assignee,project";
+    let f = 0;
+    for (;;) {
+      const { data, error } = await sb.from("mis_tasks").select(sel).lt("synced_at", runStart).range(f, f + 999);
+      if (error) {
+        console.error("⚠ removed-detect error — skipping prune for safety:", error.message);
+        candidates = null;
+        break;
+      }
+      if (!data || data.length === 0) break;
+      candidates.push(...data);
+      if (data.length < 1000) break;
+      f += 1000;
     }
   }
-  console.log(`→ logged ${changeRows.length} removed tasks`);
-}
 
-// Remove tasks that no longer exist in Asana
-const { error: delErr } = await sb.from("mis_tasks").delete().lt("synced_at", runStart);
-if (delErr) console.error("⚠ cleanup error:", delErr.message);
+  // Provenance shield: only delete a known-provenance row if every one of its
+  // projects loaded cleanly (protects rows whose project was silently dropped).
+  let toDelete = [];
+  if (canPrune && candidates && candidates.length) {
+    toDelete = candidates.filter((r) => {
+      const pgs = Array.isArray(r.project_gids) ? r.project_gids : null;
+      if (pgs && pgs.length > 0) return pgs.every((g) => okSet.has(g));
+      return true; // null/legacy provenance — safe on a verified-complete fetch
+    });
+  }
+
+  // Hard safety valve: abort (don't crash) if the delete is abnormally large, or
+  // if the DB count can't be read to judge it.
+  if (toDelete.length) {
+    const { count: dbCount, error: cntErr } = await sb.from("mis_tasks").select("*", { count: "exact", head: true });
+    const { data: appr } = await sb.from("mis_meta").select("value").eq("key", "approve_bulk_prune").maybeSingle();
+    const bulkApproved = appr && String(appr.value) === "true";
+    if (cntErr || dbCount == null) {
+      console.error("🚨 PRUNE ABORTED — could not read DB count; refusing to delete without a safety baseline.");
+      process.exitCode = 1;
+      toDelete = [];
+    } else {
+      const maxPct = Number(process.env.SYNC_MAX_PRUNE_PCT) || 0.02;
+      const absFloor = Number(process.env.SYNC_MAX_PRUNE_ABS) || 300;
+      const limit = Math.max(absFloor, Math.ceil(dbCount * maxPct));
+      if (toDelete.length > limit && !bulkApproved) {
+        console.error(
+          `🚨 PRUNE ABORTED — would delete ${toDelete.length}/${dbCount} tasks (> limit ${limit}). Skipping deletion to protect data. ` +
+            `If this is a real bulk cleanup, set mis_meta key 'approve_bulk_prune'='true' and re-run. Upserts kept; downstream syncs continue.`
+        );
+        process.exitCode = 1; // surface as a failed run, but do NOT exit (let daily/recurring run)
+        toDelete = [];
+      } else if (bulkApproved && toDelete.length > limit) {
+        // consume the one-shot approval only when it actually authorized a large prune
+        await sb.from("mis_meta").upsert({ key: "approve_bulk_prune", value: "false", updated_at: runStart }, { onConflict: "key" });
+      }
+    }
+  }
+
+  // Final truth gate: re-confirm each candidate is ACTUALLY gone from Asana before
+  // deleting. This covers a project that returned an empty/partial 200 this run
+  // (no error to catch) — its still-live tasks come back as existing and are kept.
+  // Only tasks Asana reports as 404 (deleted) survive to the delete below.
+  if (toDelete.length) {
+    const confirmedGone = [];
+    let ci = 0;
+    const reconfirm = async () => {
+      while (ci < toDelete.length) {
+        const r = toDelete[ci++];
+        const exists = await taskExists(token, r.gid);
+        if (!exists) confirmedGone.push(r);
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(8, toDelete.length) }, reconfirm));
+    const spared = toDelete.length - confirmedGone.length;
+    if (spared > 0) console.log(`→ re-confirm: kept ${spared} task(s) still present in Asana (not deleted).`);
+    toDelete = confirmedGone;
+  }
+
+  // Log to mis_changes + delete ONLY the gated set (by gid, so a stale-synced_at
+  // row we chose to KEEP is never accidentally removed).
+  if (toDelete.length) {
+    const changeRows = toDelete.map((r) => ({
+      gid: r.gid,
+      name: r.name,
+      assignee: r.assignee,
+      project: r.project,
+      action: "removed",
+      at: runStart,
+    }));
+    for (let i = 0; i < changeRows.length; i += 500) {
+      const { error } = await sb.from("mis_changes").insert(changeRows.slice(i, i + 500));
+      if (error) {
+        console.error("⚠ change-log error (is mis_changes table created?):", error.message);
+        break;
+      }
+    }
+    const gids = toDelete.map((r) => r.gid);
+    for (let i = 0; i < gids.length; i += 500) {
+      const { error } = await sb.from("mis_tasks").delete().in("gid", gids.slice(i, i + 500));
+      if (error) {
+        console.error("⚠ cleanup error:", error.message);
+        break;
+      }
+    }
+    console.log(`→ pruned ${gids.length} tasks (verified gone on a complete fetch), logged as removed`);
+  } else {
+    console.log("→ prune: 0 tasks deleted this run.");
+  }
+
+  // Remember this run's project count for next run's truncation guard — but ONLY
+  // on a non-shrunk run, so a truncated fetch can't ratchet the baseline downward.
+  if (!projectListShrank) {
+    await sb
+      .from("mis_meta")
+      .upsert({ key: "projects_total", value: String(d.projectsTotal || 0), updated_at: runStart }, { onConflict: "key" });
+  }
+}
 
 // Save member roster + last-synced time
 await sb
