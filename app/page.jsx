@@ -1224,17 +1224,18 @@ function PlannedActualTable({ data, from, to, onFrom, onTo }) {
           <label className="filter-label">Due date to</label>
           <input type="date" value={to} onChange={(e) => onTo(e.target.value)} className="filter-input" />
         </div>
-        {(from || to) && (
-          <button
-            onClick={() => {
-              onFrom("");
-              onTo("");
-            }}
-            className="btn-ghost"
-          >
-            ✕ All time
-          </button>
-        )}
+        <button
+          type="button"
+          onClick={() => {
+            onFrom("");
+            onTo("");
+          }}
+          disabled={!from && !to}
+          className="btn-ghost disabled:opacity-40 disabled:cursor-not-allowed"
+          title="Clear the date range (show all time)"
+        >
+          ✕ Clear
+        </button>
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
