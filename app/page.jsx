@@ -801,6 +801,48 @@ const RECURRING_SECTIONS = [
   { kind: "quarterly", title: "Quarterly" },
 ];
 
+const istTodayStr = () => new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+
+// Daily completion across the week SO FAR: ticks ÷ (tasks × working days elapsed).
+// (weekDates are already Mon–Sat, so Sundays are excluded.)
+function dailyStats(daily, person) {
+  if (!daily || daily.error) return null;
+  const weekDates = daily.weekDates || [];
+  const todayStr = istTodayStr();
+  const tasks = (daily.rows || []).filter((r) => r.person === person);
+  // Full week: every Mon–Sat day is an opportunity → denominator = tasks × 6.
+  let done = 0;
+  for (const t of tasks) {
+    const set = new Set(t.dates || []);
+    for (const d of weekDates) if (set.has(d)) done++;
+  }
+  const total = tasks.length * weekDates.length;
+  const pct = total ? Math.round((100 * done) / total) : null;
+  return { pct, done, total, tasks, weekDates, todayStr };
+}
+
+// Recurring completion across the WHOLE window: (on-time + late) ÷ cells that had a
+// cycle due ('none' = no cycle that period, so it's not an opportunity).
+function recurringStats(recurring, kind, person) {
+  if (!recurring || recurring.error) return null;
+  const data = (recurring && recurring[kind]) || { periods: [], rows: [] };
+  const periods = data.periods || [];
+  const tasks = (data.rows || []).filter((r) => r.person === person);
+  // Full window: EVERY period shown is an opportunity → denominator = tasks ×
+  // periods (including periods with no cycle due). Completed = on-time + late.
+  let done = 0;
+  let total = 0;
+  for (const t of tasks) {
+    if (!t.has_due) continue;
+    total += periods.length;
+    for (const v of t.cells || []) {
+      if (v === "on_time" || v === "late") done++;
+    }
+  }
+  const pct = total ? Math.round((100 * done) / total) : null;
+  return { pct, done, total, tasks, periods };
+}
+
 function ToDoTasks({ daily, recurring, person, onPerson }) {
   // union of every person across the daily roster + all recurring cadences
   const people = useMemo(() => {
@@ -814,13 +856,29 @@ function ToDoTasks({ daily, recurring, person, onPerson }) {
 
   const loading = !daily || !recurring;
 
+  // Total Average Completion = simple average of the per-section %s the person
+  // actually has (empty sections don't drag it down).
+  const sectionPcts = [];
+  if (person) {
+    const d = dailyStats(daily, person);
+    if (d && d.pct != null) sectionPcts.push(d.pct);
+    for (const { kind } of RECURRING_SECTIONS) {
+      const r = recurringStats(recurring, kind, person);
+      if (r && r.pct != null) sectionPcts.push(r.pct);
+    }
+  }
+  const totalAvg = sectionPcts.length
+    ? Math.round(sectionPcts.reduce((a, b) => a + b, 0) / sectionPcts.length)
+    : null;
+
   return (
     <Panel>
       <h2 className="font-semibold text-sm mb-1">To-Do scorecard by person</h2>
       <p className="text-xs text-gray-400 mb-3">
-        Pick a person to see all their to-do cadences in one place. Each section shows an{" "}
-        <span className="font-semibold">average score = completed ÷ opportunities</span> — daily is ticks ÷ (tasks ×
-        6 days); the rest are on-time ticks ÷ (tasks × periods).
+        Pick a person to see all their to-do cadences in one place. Each section's{" "}
+        <span className="font-semibold">average = completed ÷ opportunities</span> across the whole window shown
+        (late still counts as done). The badge at the <span className="font-semibold">top-right</span> is their{" "}
+        <span className="font-semibold">total average completion</span> across all sections.
       </p>
 
       <div className="flex items-end gap-2 mb-4">
@@ -844,11 +902,21 @@ function ToDoTasks({ daily, recurring, person, onPerson }) {
 
       {!loading && person && (
         <div className="space-y-6 max-h-[78vh] overflow-y-auto pr-1">
-          <div className="flex items-center gap-2">
-            <span className="w-9 h-9 rounded-full bg-indigo-100 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-300 flex items-center justify-center text-sm font-semibold">
-              {initials(person)}
-            </span>
-            <span className="font-semibold text-base">{person}</span>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <span className="w-9 h-9 rounded-full bg-indigo-100 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-300 flex items-center justify-center text-sm font-semibold">
+                {initials(person)}
+              </span>
+              <span className="font-semibold text-base">{person}</span>
+            </div>
+            {totalAvg != null && (
+              <span
+                className={`inline-flex items-baseline gap-2 px-4 py-2 rounded-xl text-lg font-bold shadow-sm ${pctBadge(totalAvg)}`}
+                title="Average of all this person's to-do section scores"
+              >
+                {totalAvg}% <span className="text-xs font-semibold opacity-75">total avg completion</span>
+              </span>
+            )}
           </div>
 
           <DailyPersonSection daily={daily} person={person} />
@@ -896,21 +964,9 @@ function DailyPersonSection({ daily, person }) {
       </SectionShell>
     );
   }
-  const weekDates = (daily && daily.weekDates) || [];
   const labels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-  const todayStr = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
-  const tasks = ((daily && daily.rows) || []).filter((r) => r.person === person);
-
-  // Average = YESTERDAY's score (one day prior). On Monday, shows Saturday (skip Sunday).
-  const todayDate = new Date(todayStr + "T00:00:00Z");
-  const dow = todayDate.getUTCDay(); // 0=Sun, 1=Mon, ..., 6=Sat
-  const daysBack = dow === 1 ? 2 : 1; // Monday → go back 2 days to Saturday
-  const refDate = new Date(todayDate);
-  refDate.setUTCDate(todayDate.getUTCDate() - daysBack);
-  const refStr = refDate.toISOString().slice(0, 10);
-  const todayDone = tasks.filter((t) => (t.dates || []).includes(refStr)).length;
-  const totalTasks = tasks.length;
-  const avg = totalTasks ? Math.round((100 * todayDone) / totalTasks) : null;
+  const st = dailyStats(daily, person) || { pct: null, done: 0, total: 0, tasks: [], weekDates: [], todayStr: istTodayStr() };
+  const { tasks, weekDates, todayStr } = st;
 
   const cell = (date, done) => {
     if (done) return "bg-green-100 text-green-700 dark:bg-green-950/50 dark:text-green-400";
@@ -919,7 +975,7 @@ function DailyPersonSection({ daily, person }) {
   };
 
   return (
-    <SectionShell title="Daily" avg={avg} count={tasks.length} done={todayDone} total={totalTasks} note="Showing previous day's score">
+    <SectionShell title="Daily" avg={st.pct} count={tasks.length} done={st.done} total={st.total} note="Completion this week so far (Mon–Sat)">
       {tasks.length === 0 ? (
         <p className="text-xs text-gray-400">No daily tasks.</p>
       ) : (
@@ -982,26 +1038,21 @@ function RecurringPersonSection({ kind, title, recurring, person }) {
       </SectionShell>
     );
   }
-  const data = (recurring && recurring[kind]) || { periods: [], rows: [] };
-  const periods = data.periods || [];
-  const tasks = (data.rows || []).filter((r) => r.person === person);
-
-  // Average = PREVIOUS period (second-to-last column): the last fully completed period.
-  const prevIdx = Math.max(0, periods.length - 2);
-  const currentDone = tasks.filter((t) => t.has_due && (t.cells || [])[prevIdx] === "on_time").length;
-  const currentTotal = tasks.filter((t) => t.has_due).length;
-  const avg = currentTotal ? Math.round((100 * currentDone) / currentTotal) : null;
+  const st = recurringStats(recurring, kind, person) || { pct: null, done: 0, total: 0, tasks: [], periods: [] };
+  const { tasks, periods } = st;
 
   const cellCls = (v) =>
     v === "on_time"
       ? "bg-green-100 text-green-700 dark:bg-green-950/50 dark:text-green-400"
-      : v === "missed"
-        ? "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-400"
-        : "bg-gray-100 text-gray-400 dark:bg-gray-800 dark:text-gray-600";
-  const glyph = (v) => (v === "on_time" ? "✓" : v === "missed" ? "✗" : "·");
+      : v === "late"
+        ? "bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-400"
+        : v === "missed"
+          ? "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-400"
+          : "bg-gray-100 text-gray-400 dark:bg-gray-800 dark:text-gray-600";
+  const glyph = (v) => (v === "on_time" ? "✓" : v === "late" ? "✓" : v === "missed" ? "✗" : "·");
 
   return (
-    <SectionShell title={title} avg={avg} count={tasks.length} done={currentDone} total={currentTotal} note={`Showing previous ${title.toLowerCase()}'s score`}>
+    <SectionShell title={title} avg={st.pct} count={tasks.length} done={st.done} total={st.total} note={`Completion across the last ${periods.length} ${title.toLowerCase()} periods · late counts as done`}>
       {tasks.length === 0 ? (
         <p className="text-xs text-gray-400">No {title.toLowerCase()} tasks.</p>
       ) : (
@@ -1015,7 +1066,7 @@ function RecurringPersonSection({ kind, title, recurring, person }) {
                     {p}
                   </th>
                 ))}
-                <th className="py-1.5 px-2 text-center">On time</th>
+                <th className="py-1.5 px-2 text-center">Done</th>
               </tr>
             </thead>
             <tbody>
@@ -1214,8 +1265,9 @@ function PlannedActualTable({ data, from, to, onFrom, onTo }) {
       <h2 className="font-semibold text-sm mb-1">Planned vs Actual — One-Time tasks</h2>
       <p className="text-xs text-gray-400 mb-3">
         <span className="font-semibold">Planned</span> = one-time tasks whose <span className="font-semibold">due date</span> falls
-        in the range below (empty = all time). <span className="font-semibold">Actual (On-Time)</span> = completed on or before
-        the due date. Score: 0% = everything done on time · −100% = nothing on time. Worst first.{" "}
+        in the range below (empty = all time). <span className="font-semibold">Actual</span> = completed (on-time{" "}
+        <span className="font-semibold">or late</span> — both count). Score: 0% = everything done · −100% = nothing done.
+        Worst first.{" "}
         <span className="font-semibold">Revised</span> = tasks whose due date was pushed more than 7 days from the original
         (same as One-Time).
       </p>

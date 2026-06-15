@@ -146,7 +146,9 @@ const KINDS = ["weekly", "biweekly", "monthly", "bimonthly", "quarterly"];
 // Bucket a task's cycles into the period columns → ['on_time'|'missed'|'none', …].
 function bucketCells(kind, cycles, periodKeys) {
   const keyer = KEYER[kind];
-  const sev = (s) => (s === "on_time" ? 0 : 1); // missed/late dominates a period
+  // Worst status dominates a period: missed > late > on_time. 'late' is kept
+  // distinct — it still counts as COMPLETED, just not on time.
+  const sev = (s) => (s === "missed" ? 2 : s === "late" ? 1 : 0);
   const byP = new Map();
   for (const c of cycles || []) {
     if (!c.due) continue;
@@ -154,7 +156,7 @@ function bucketCells(kind, cycles, periodKeys) {
     const prev = byP.get(k);
     if (prev === undefined || sev(c.status) > sev(prev)) byP.set(k, c.status);
   }
-  return periodKeys.map((k) => (!byP.has(k) ? "none" : byP.get(k) === "on_time" ? "on_time" : "missed"));
+  return periodKeys.map((k) => (byP.has(k) ? byP.get(k) : "none"));
 }
 
 async function buildKind(sb, kind) {
@@ -176,7 +178,7 @@ async function buildKind(sb, kind) {
       current_due: r.current_due,
       has_due: r.has_due,
       cells,
-      done: cells.filter((c) => c === "on_time").length,
+      done: cells.filter((c) => c === "on_time" || c === "late").length,
     };
   });
   return { periods: periods.map((p) => p.label), rows };
