@@ -23,6 +23,18 @@ function weekRange(weekOffset = 0) {
   return { from: dates[0], to: dates[5], dates };
 }
 
+// All dates from `from` to `to` inclusive, excluding Sundays (daily is Mon–Sat).
+function daysInRange(from, to) {
+  const out = [];
+  const end = new Date(to + "T00:00:00Z");
+  let d = new Date(from + "T00:00:00Z");
+  while (d <= end) {
+    if (d.getUTCDay() !== 0) out.push(d.toISOString().slice(0, 10));
+    d.setUTCDate(d.getUTCDate() + 1);
+  }
+  return out;
+}
+
 export async function GET(req) {
   const session = cookies().get(SESSION_COOKIE);
   if (!session || !verifySession(session.value)) {
@@ -32,8 +44,18 @@ export async function GET(req) {
   if (!sb) return NextResponse.json({ error: "NO_SUPABASE" }, { status: 400 });
 
   const sp = new URL(req.url).searchParams;
-  const weekOffset = Math.max(0, parseInt(sp.get("week") || "0", 10));
-  const { from, to, dates } = weekRange(weekOffset);
+  const qFrom = sp.get("from");
+  const qTo = sp.get("to");
+  let from, to, dates;
+  if (qFrom && qTo) {
+    // Calendar range selected → show that exact window (Mon–Sat days within it).
+    from = qFrom;
+    to = qTo;
+    dates = daysInRange(from, to);
+  } else {
+    const weekOffset = Math.max(0, parseInt(sp.get("week") || "0", 10));
+    ({ from, to, dates } = weekRange(weekOffset));
+  }
 
   const { data, error } = await sb.rpc("mis_daily_scorecard", { p_from: from, p_to: to });
   if (error) {

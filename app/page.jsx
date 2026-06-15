@@ -187,7 +187,12 @@ export default function Dashboard() {
     let cancelled = false;
     setDaily(null);
     setRecurring(null);
-    fetch("/api/daily")
+    // Reuse the top Calendar range: empty = current week / last-N periods.
+    const qp = new URLSearchParams();
+    if (dateFrom) qp.set("from", dateFrom);
+    if (dateTo) qp.set("to", dateTo);
+    const qs = qp.toString() ? `?${qp.toString()}` : "";
+    fetch(`/api/daily${qs}`)
       .then((r) => r.json())
       .then((j) => {
         if (!cancelled) setDaily(j);
@@ -195,7 +200,7 @@ export default function Dashboard() {
       .catch((e) => {
         if (!cancelled) setDaily({ error: "DB_ERROR", message: String(e) });
       });
-    fetch("/api/recurring")
+    fetch(`/api/recurring${qs}`)
       .then((r) => r.json())
       .then((j) => {
         if (!cancelled) setRecurring(j);
@@ -206,7 +211,7 @@ export default function Dashboard() {
     return () => {
       cancelled = true;
     };
-  }, [tab, refreshTick]);
+  }, [tab, refreshTick, dateFrom, dateTo]);
 
   // load a person's one-time tasks for the Performance drill-down
   // (respects the Calendar = ADDED/CREATED date window too)
@@ -964,9 +969,12 @@ function DailyPersonSection({ daily, person }) {
       </SectionShell>
     );
   }
-  const labels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   const st = dailyStats(daily, person) || { pct: null, done: 0, total: 0, tasks: [], weekDates: [], todayStr: istTodayStr() };
   const { tasks, weekDates, todayStr } = st;
+  const wd = (d) => ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][new Date(d + "T00:00:00Z").getUTCDay()];
+  const windowNote = weekDates.length
+    ? `Completion ${weekDates[0]} → ${weekDates[weekDates.length - 1]}`
+    : "Completion this week so far (Mon–Sat)";
 
   const cell = (date, done) => {
     if (done) return "bg-green-100 text-green-700 dark:bg-green-950/50 dark:text-green-400";
@@ -975,7 +983,7 @@ function DailyPersonSection({ daily, person }) {
   };
 
   return (
-    <SectionShell title="Daily" avg={st.pct} count={tasks.length} done={st.done} total={st.total} note="Completion this week so far (Mon–Sat)">
+    <SectionShell title="Daily" avg={st.pct} count={tasks.length} done={st.done} total={st.total} note={windowNote}>
       {tasks.length === 0 ? (
         <p className="text-xs text-gray-400">No daily tasks.</p>
       ) : (
@@ -984,9 +992,9 @@ function DailyPersonSection({ daily, person }) {
             <thead>
               <tr className="text-left text-[11px] uppercase tracking-wide text-gray-400 border-b border-gray-200 dark:border-gray-800">
                 <th className="py-1.5 px-2">Daily task</th>
-                {labels.map((l, i) => (
-                  <th key={l} className="py-1.5 px-1 text-center w-10" title={weekDates[i]}>
-                    {l}
+                {weekDates.map((d) => (
+                  <th key={d} className="py-1.5 px-1 text-center w-10" title={d}>
+                    {wd(d)}
                   </th>
                 ))}
                 <th className="py-1.5 px-2 text-center">Done</th>
@@ -1013,10 +1021,10 @@ function DailyPersonSection({ daily, person }) {
                     })}
                     <td className="py-1.5 px-2 text-center">
                       <span
-                        className={`inline-block px-2 py-1 rounded-md text-xs font-semibold ${t.done >= 6 ? pctBadge(100) : t.done >= 4 ? pctBadge(60) : pctBadge(0)
+                        className={`inline-block px-2 py-1 rounded-md text-xs font-semibold ${t.done >= weekDates.length ? pctBadge(100) : t.done >= weekDates.length / 2 ? pctBadge(60) : pctBadge(0)
                           }`}
                       >
-                        {t.done}/6
+                        {t.done}/{weekDates.length}
                       </span>
                     </td>
                   </tr>
@@ -1052,7 +1060,7 @@ function RecurringPersonSection({ kind, title, recurring, person }) {
   const glyph = (v) => (v === "on_time" ? "✓" : v === "late" ? "✓" : v === "missed" ? "✗" : "·");
 
   return (
-    <SectionShell title={title} avg={st.pct} count={tasks.length} done={st.done} total={st.total} note={`Completion across the last ${periods.length} ${title.toLowerCase()} periods · late counts as done`}>
+    <SectionShell title={title} avg={st.pct} count={tasks.length} done={st.done} total={st.total} note={`Completion across ${periods.length} ${title.toLowerCase()} period${periods.length === 1 ? "" : "s"} shown · late counts as done`}>
       {tasks.length === 0 ? (
         <p className="text-xs text-gray-400">No {title.toLowerCase()} tasks.</p>
       ) : (

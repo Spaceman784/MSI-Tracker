@@ -143,6 +143,51 @@ const PERIODS = {
 };
 const KINDS = ["weekly", "biweekly", "monthly", "bimonthly", "quarterly"];
 
+// Periods of a cadence that overlap [from, to] (oldest→newest), mirroring the
+// {key,label,start,end} shape of the lastX() generators. Capped at 60.
+function periodsInRange(kind, from, to) {
+  const out = [];
+  if (kind === "weekly" || kind === "biweekly") {
+    const step = kind === "weekly" ? 7 : 14;
+    let s = kind === "weekly" ? mondayKeyOf(from) : fortnightStartOf(from);
+    while (s <= to) {
+      out.push({ key: s, label: weekLabel(s), start: s, end: addDaysKey(s, step - 1) });
+      s = addDaysKey(s, step);
+    }
+  } else if (kind === "monthly") {
+    let ym = monthKeyOf(from);
+    const endYm = monthKeyOf(to);
+    while (ym <= endYm) {
+      out.push({ key: ym, label: monthLabel(ym), start: `${ym}-01`, end: lastDayOfMonth(ym) });
+      ym = addMonthsKey(ym, 1);
+    }
+  } else if (kind === "bimonthly") {
+    let bs = bimonthStartOf(from);
+    const endBs = bimonthStartOf(to);
+    while (bs <= endBs) {
+      out.push({ key: bs, label: bimonthLabel(bs), start: `${bs}-01`, end: lastDayOfMonth(addMonthsKey(bs, 1)) });
+      bs = addMonthsKey(bs, 2);
+    }
+  } else if (kind === "quarterly") {
+    let [y, mo] = from.split("-").map(Number);
+    let q = Math.floor((mo - 1) / 3) + 1;
+    const [ty, tmo] = to.split("-").map(Number);
+    const tq = Math.floor((tmo - 1) / 3) + 1;
+    while (y < ty || (y === ty && q <= tq)) {
+      const sm = (q - 1) * 3 + 1;
+      out.push({
+        key: `${y}-Q${q}`,
+        label: `Q${q} '${String(y).slice(2)}`,
+        start: `${y}-${String(sm).padStart(2, "0")}-01`,
+        end: lastDayOfMonth(`${y}-${String(sm + 2).padStart(2, "0")}`),
+      });
+      q++;
+      if (q > 4) { q = 1; y++; }
+    }
+  }
+  return out.length > 60 ? out.slice(-60) : out;
+}
+
 // Bucket a task's cycles into the period columns → ['on_time'|'missed'|'none', …].
 function bucketCells(kind, cycles, periodKeys) {
   const keyer = KEYER[kind];
@@ -159,8 +204,9 @@ function bucketCells(kind, cycles, periodKeys) {
   return periodKeys.map((k) => (byP.has(k) ? byP.get(k) : "none"));
 }
 
-async function buildKind(sb, kind) {
-  const periods = PERIODS[kind]();
+async function buildKind(sb, kind, rangeFrom, rangeTo) {
+  const periods = rangeFrom && rangeTo ? periodsInRange(kind, rangeFrom, rangeTo) : PERIODS[kind]();
+  if (!periods.length) return { periods: [], rows: [] };
   const keys = periods.map((p) => p.key);
   const from = periods[0].start;
   const to = periods[periods.length - 1].end;
@@ -184,7 +230,7 @@ async function buildKind(sb, kind) {
   return { periods: periods.map((p) => p.label), rows };
 }
 
-export async function GET() {
+export async function GET(req) {
   const session = cookies().get(SESSION_COOKIE);
   if (!session || !verifySession(session.value)) {
     return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
@@ -192,7 +238,10 @@ export async function GET() {
   const sb = getSupabase();
   if (!sb) return NextResponse.json({ error: "NO_SUPABASE" }, { status: 400 });
 
-  const built = await Promise.all(KINDS.map((k) => buildKind(sb, k)));
+  const sp = new URL(req.url).searchParams;
+  const rangeFrom = sp.get("from"); // Calendar range → show periods overlapping it
+  const rangeTo = sp.get("to");
+  const built = await Promise.all(KINDS.map((k) => buildKind(sb, k, rangeFrom, rangeTo)));
   const failed = built.find((b) => b.error);
   if (failed) {
     const missing = /mis_recurring/.test(failed.error.message || "");
