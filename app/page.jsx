@@ -916,10 +916,10 @@ function ToDoTasks({ daily, recurring, person, onPerson }) {
             </div>
             {totalAvg != null && (
               <span
-                className={`inline-flex items-baseline gap-2 px-4 py-2 rounded-xl text-lg font-bold shadow-sm ${pctBadge(totalAvg)}`}
-                title="Average of all this person's to-do section scores"
+                className={`inline-flex items-baseline gap-2 px-4 py-2 rounded-xl text-lg font-bold shadow-sm ${scoreBadge(totalAvg - 100)}`}
+                title="Average of all this person's to-do section scores (0 = all done, −100 = none)"
               >
-                {totalAvg}% <span className="text-xs font-semibold opacity-75">total avg completion</span>
+                {totalAvg - 100}% <span className="text-xs font-semibold opacity-75">total avg score</span>
               </span>
             )}
           </div>
@@ -942,10 +942,10 @@ function SectionShell({ title, avg, count, done, total, note, children }) {
         <h3 className="font-semibold text-base">{title}</h3>
         {avg != null ? (
           <span
-            className={`inline-flex items-baseline gap-2 px-4 py-2 rounded-xl text-lg font-bold shadow-sm ${pctBadge(avg)}`}
+            className={`inline-flex items-baseline gap-2 px-4 py-2 rounded-xl text-lg font-bold shadow-sm ${scoreBadge(avg - 100)}`}
           >
-            {avg}% avg tasks completed
-            {total ? <span className="text-sm font-semibold opacity-75">· {done} of {total}</span> : null}
+            {avg - 100}% score
+            {total ? <span className="text-sm font-semibold opacity-75">· {done} of {total} done</span> : null}
           </span>
         ) : (
           <span className="text-sm text-gray-400">no score</span>
