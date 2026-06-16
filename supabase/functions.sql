@@ -122,6 +122,7 @@ create or replace function mis_performance(p_from date default null, p_to date d
       count(*) filter (where is_one_time and not completed and due_on < current_date) as overdue,
       count(*) filter (where is_one_time and completed and due_on is not null and completed_at is not null and completed_at::date <= due_on) as on_time,
       count(*) filter (where is_one_time and completed and due_on is not null and completed_at is not null and completed_at::date >  due_on) as delayed,
+      count(*) filter (where is_one_time and completed and due_on is not null and completed_at is not null and (completed_at::date - due_on) > 7) as late_over_7,
       count(*) filter (where is_one_time and completed and (due_on is null or completed_at is null)) as no_due,
       count(*) filter (where is_one_time and original_due_on is not null and due_on is not null and abs(due_on - original_due_on) > 7) as revised,
       coalesce(sum(current_date - due_on) filter (where is_one_time and not completed and due_on < current_date), 0) as days_overdue,
@@ -137,8 +138,9 @@ create or replace function mis_performance(p_from date default null, p_to date d
     'assignee', assignee, 'total', total, 'completed', completed, 'pending', pending, 'overdue', overdue,
     'on_time', on_time, 'delayed', delayed, 'no_due', no_due, 'revised', revised,
     'days_overdue', days_overdue, 'days_late', days_late,
-    'score', coalesce(round(100.0 * completed / nullif(total, 0)), 0) - 100
-  ) order by coalesce(round(100.0 * completed / nullif(total, 0)), 0) - 100 asc), '[]'::jsonb)
+    -- >7-days-late completions are excluded from BOTH top & bottom (neutral); still shown in 'delayed'.
+    'score', coalesce(round(100.0 * (completed - late_over_7) / nullif(total - late_over_7, 0)), 0) - 100
+  ) order by coalesce(round(100.0 * (completed - late_over_7) / nullif(total - late_over_7, 0)), 0) - 100 asc), '[]'::jsonb)
   from p;
 $$;
 
@@ -153,6 +155,7 @@ returns jsonb language sql stable as $$
       count(*) as planned,
       count(*) filter (where completed and completed_at is not null and completed_at::date <= due_on) as on_time,
       count(*) filter (where completed and completed_at is not null and completed_at::date >  due_on) as late,
+      count(*) filter (where completed and completed_at is not null and (completed_at::date - due_on) > 7) as late_over_7,
       count(*) filter (where not completed) as not_done,
       count(*) filter (where original_due_on is not null and due_on is not null and abs(due_on - original_due_on) > 7) as revised
     from mis_tasks
@@ -166,7 +169,8 @@ returns jsonb language sql stable as $$
   )
   select coalesce(jsonb_agg(jsonb_build_object(
     'assignee', assignee, 'planned', planned, 'on_time', on_time, 'late', late, 'not_done', not_done, 'revised', revised,
-    'score', coalesce(round(100.0 * (on_time + late) / nullif(planned, 0)), 0) - 100
-  ) order by coalesce(round(100.0 * (on_time + late) / nullif(planned, 0)), 0) - 100 asc), '[]'::jsonb)
+    -- >7-days-late completions excluded from BOTH top & bottom (neutral); still shown in 'late'.
+    'score', coalesce(round(100.0 * (on_time + late - late_over_7) / nullif(planned - late_over_7, 0)), 0) - 100
+  ) order by coalesce(round(100.0 * (on_time + late - late_over_7) / nullif(planned - late_over_7, 0)), 0) - 100 asc), '[]'::jsonb)
   from p;
 $$;
