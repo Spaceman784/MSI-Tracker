@@ -30,6 +30,7 @@ export default function Dashboard() {
   const [planned, setPlanned] = useState(null);
   const [plannedFrom, setPlannedFrom] = useState(""); // empty = all time
   const [plannedTo, setPlannedTo] = useState("");
+  const [plannedFixed, setPlannedFixed] = useState(false); // Dynamic (live) vs Fixed (frozen snapshot)
   const [refreshTick, setRefreshTick] = useState(0);
 
   // filters
@@ -170,6 +171,7 @@ export default function Dashboard() {
     const p = new URLSearchParams();
     if (plannedFrom) p.set("from", plannedFrom);
     if (plannedTo) p.set("to", plannedTo);
+    if (plannedFixed && plannedTo) p.set("fixed", "1"); // Fixed needs an end date to freeze against
     fetch(`/api/planned?${p.toString()}`)
       .then((r) => r.json())
       .then((j) => {
@@ -179,7 +181,7 @@ export default function Dashboard() {
     return () => {
       cancelled = true;
     };
-  }, [tab, plannedFrom, plannedTo, refreshTick]);
+  }, [tab, plannedFrom, plannedTo, plannedFixed, refreshTick]);
 
   // load the Daily to-do scorecard when the tab is open (and on each refresh tick)
   useEffect(() => {
@@ -450,6 +452,8 @@ export default function Dashboard() {
                 to={plannedTo}
                 onFrom={setPlannedFrom}
                 onTo={setPlannedTo}
+                fixed={plannedFixed}
+                onFixed={setPlannedFixed}
               />
             )}
 
@@ -1252,7 +1256,7 @@ function PerformancePersonDrawer({ person, tasks, onClose, onSelectTask }) {
   );
 }
 
-function PlannedActualTable({ data, from, to, onFrom, onTo }) {
+function PlannedActualTable({ data, from, to, onFrom, onTo, fixed, onFixed }) {
   const [q, setQ] = useState("");
   const rows = (data && data.rows) || [];
   const s = q.trim().toLowerCase();
@@ -1294,6 +1298,7 @@ function PlannedActualTable({ data, from, to, onFrom, onTo }) {
           onClick={() => {
             onFrom("");
             onTo("");
+            onFixed(false);
           }}
           disabled={!from && !to}
           className="btn-ghost disabled:opacity-40 disabled:cursor-not-allowed"
@@ -1301,6 +1306,30 @@ function PlannedActualTable({ data, from, to, onFrom, onTo }) {
         >
           ✕ Clear
         </button>
+        <div>
+          <label className="filter-label">View</label>
+          <div className="inline-flex rounded-lg border border-gray-200 dark:border-gray-800 overflow-hidden">
+            <button
+              type="button"
+              onClick={() => onFixed(false)}
+              className={`px-3 py-1.5 text-xs font-medium transition ${!fixed ? "bg-indigo-500 text-white" : "text-gray-500 hover:bg-gray-100 dark:hover:bg-[#1a1a1a]"
+                }`}
+              title="Live — numbers move if tasks are rescheduled"
+            >
+              Dynamic
+            </button>
+            <button
+              type="button"
+              onClick={() => onFixed(true)}
+              disabled={!to}
+              className={`px-3 py-1.5 text-xs font-medium transition disabled:opacity-40 disabled:cursor-not-allowed ${fixed ? "bg-indigo-500 text-white" : "text-gray-500 hover:bg-gray-100 dark:hover:bg-[#1a1a1a]"
+                }`}
+              title={to ? "Frozen — locks the numbers as of the 'Due date to'" : "Pick a 'Due date to' first to freeze the view"}
+            >
+              Fixed
+            </button>
+          </div>
+        </div>
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
@@ -1308,6 +1337,26 @@ function PlannedActualTable({ data, from, to, onFrom, onTo }) {
           className="filter-input max-w-xs ml-auto"
         />
       </div>
+
+      {fixed && to && data && !data.error && (
+        !data.snapshot_used ? (
+          <p className="text-xs text-amber-600 dark:text-amber-400 mb-2">
+            No snapshot for this range yet — showing live numbers. Frozen history builds from the first sync after this update.
+          </p>
+        ) : data.in_progress ? (
+          <p className="text-xs text-gray-400 mb-2">
+            🔒 Snapshot as of {data.as_of}. This range isn&apos;t over yet — it finalizes after {to}.
+          </p>
+        ) : data.stale ? (
+          <p className="text-xs text-amber-600 dark:text-amber-400 mb-2">
+            ⚠ No snapshot for {to} (sync gap) — showing the nearest one from {data.as_of}. Changes after {data.as_of} aren&apos;t reflected.
+          </p>
+        ) : (
+          <p className="text-xs text-gray-400 mb-2">
+            🔒 Planned as of {data.as_of} · frozen snapshot — won&apos;t change as tasks are rescheduled.
+          </p>
+        )
+      )}
 
       {!data && <p className="text-sm text-gray-500">Loading planned vs actual…</p>}
       {data && data.error && (

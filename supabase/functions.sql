@@ -144,13 +144,71 @@ create or replace function mis_performance(p_from date default null, p_to date d
   from p;
 $$;
 
+-- ---- Daily snapshot of one-time tasks (for Planned vs Actual "Fixed" mode) ----
+-- Each sync UPSERTS every one-time task's CURRENT state into the row tagged with
+-- TODAY's IST date (snap_date, gid). Today's row keeps getting overwritten during
+-- the day, so by day's end it equals the end-of-day state; a PAST date's row is
+-- never touched again → frozen. "Fixed" mode reads the row at the END of the range,
+-- so a review of a past week never changes even if tasks are rescheduled afterward.
+create table if not exists mis_due_snapshots (
+  snap_date        date not null,
+  gid              text not null,
+  assignee         text,
+  due_on           date,
+  completed        boolean,
+  completed_at     timestamptz,
+  is_one_time      boolean,
+  archived         boolean,
+  original_due_on  date,
+  created_at       timestamptz,
+  primary key (snap_date, gid)
+);
+create index if not exists idx_mds_assignee on mis_due_snapshots (snap_date, assignee);
+create index if not exists idx_mds_due on mis_due_snapshots (snap_date, due_on);
+alter table mis_due_snapshots enable row level security;
+
+-- Retention: drop daily snapshots older than N days, but KEEP every SUNDAY
+-- snapshot forever (cheap week-boundary history for long-term reviews).
+create or replace function mis_prune_snapshots(p_keep_days int default 120) returns void language sql as $$
+  delete from mis_due_snapshots
+  where snap_date < (current_date - p_keep_days)
+    and extract(dow from snap_date) <> 0;   -- 0 = Sunday → kept forever
+$$;
+
 -- ---- Planned vs Actual: one-time tasks planned (due) in a range vs done on time ----
 -- p_from/p_to filter by DUE date; both null = all time (every one-time task with a due date).
 -- Score = ALL completed (on-time + late) ÷ planned − 100 (late counts at full
 -- credit; not-done = 0). The on_time / late split is still returned for display.
-create or replace function mis_planned_actual(p_from date default null, p_to date default null)
+--
+-- p_as_of: NULL => "Dynamic" (live mis_tasks, the original behavior). When set,
+-- "Fixed" mode reads the FROZEN snapshot for the latest snap_date <= p_as_of.
+drop function if exists mis_planned_actual(date, date);
+create or replace function mis_planned_actual(p_from date default null, p_to date default null, p_as_of date default null)
 returns jsonb language sql stable as $$
-  with p as (
+  with snap as (
+    -- the frozen day to read in Fixed mode: latest snapshot on/before p_as_of
+    select max(snap_date) sd from mis_due_snapshots where p_as_of is not null and snap_date <= p_as_of
+  ),
+  src as (
+    -- DYNAMIC branch (p_as_of null): live one-time tasks
+    select assignee, due_on, completed, completed_at, original_due_on
+    from mis_tasks
+    where p_as_of is null
+      and is_one_time
+      and coalesce(archived, false) = false
+      and due_on is not null
+    union all
+    -- FIXED branch (p_as_of set): the frozen snapshot for that day
+    select s.assignee, s.due_on, s.completed, s.completed_at, s.original_due_on
+    from mis_due_snapshots s, snap
+    where p_as_of is not null
+      and snap.sd is not null
+      and s.snap_date = snap.sd
+      and s.is_one_time
+      and coalesce(s.archived, false) = false
+      and s.due_on is not null
+  ),
+  p as (
     select assignee,
       count(*) as planned,
       count(*) filter (where completed and completed_at is not null and completed_at::date <= due_on) as on_time,
@@ -158,11 +216,8 @@ returns jsonb language sql stable as $$
       count(*) filter (where completed and completed_at is not null and (completed_at::date - due_on) > 7) as late_over_7,
       count(*) filter (where not completed) as not_done,
       count(*) filter (where original_due_on is not null and due_on is not null and abs(due_on - original_due_on) > 7) as revised
-    from mis_tasks
-    where is_one_time
-      and coalesce(archived, false) = false
-      and due_on is not null
-      and (p_from is null or due_on >= p_from)
+    from src
+    where (p_from is null or due_on >= p_from)
       and (p_to   is null or due_on <= p_to)
     group by assignee
     having count(*) > 0

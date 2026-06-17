@@ -350,6 +350,56 @@ await sb
   .from("mis_meta")
   .upsert({ key: "last_synced", value: runStart, updated_at: runStart }, { onConflict: "key" });
 
+// ---- Daily snapshot of one-time tasks (Planned vs Actual "Fixed" mode) ----
+// Upserts every one-time task WITH a due date into TODAY's (IST) snapshot row.
+// Re-running during the day overwrites today's row; past days stay frozen, so a
+// Monday review of last week never shifts when tasks are rescheduled. Fully
+// guarded: if the table isn't created yet, the main sync is unaffected.
+try {
+  const snapProbe = await sb.from("mis_due_snapshots").select("snap_date").limit(1);
+  if (snapProbe.error && /mis_due_snapshots/i.test(snapProbe.error.message)) {
+    console.log("ℹ 'mis_due_snapshots' table not found — skipping snapshot. Run supabase/functions.sql to enable Fixed mode.");
+  } else {
+    const istDate = new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
+    const snapRows = [];
+    for (const r of rows) {
+      const projs = r.projects && r.projects.length ? r.projects : r.project ? [r.project] : [];
+      if (!r.due_on || !isOneTime(r.assignee, projs)) continue; // one-time, due-dated only
+      snapRows.push({
+        snap_date: istDate,
+        gid: r.gid,
+        assignee: r.assignee,
+        due_on: r.due_on,
+        completed: r.completed,
+        completed_at: r.completed_at,
+        is_one_time: true,
+        archived: r.archived || false,
+        original_due_on: r.original_due_on || r.due_on,
+        created_at: r.created_at,
+      });
+    }
+    let snapOk = true;
+    for (let i = 0; i < snapRows.length; i += CHUNK) {
+      const { error } = await sb
+        .from("mis_due_snapshots")
+        .upsert(snapRows.slice(i, i + CHUNK), { onConflict: "snap_date,gid" });
+      if (error) {
+        console.error("⚠ snapshot upsert error:", error.message);
+        snapOk = false;
+        break;
+      }
+    }
+    if (snapOk) {
+      console.log(`→ snapshot: froze ${snapRows.length} one-time tasks for ${istDate}`);
+      const keep = Number(process.env.SYNC_SNAPSHOT_KEEP_DAYS) || 120;
+      const { error: pruneErr } = await sb.rpc("mis_prune_snapshots", { p_keep_days: keep });
+      if (pruneErr) console.error("⚠ snapshot prune skipped:", pruneErr.message);
+    }
+  }
+} catch (e) {
+  console.error("⚠ snapshot step skipped:", e.message);
+}
+
 // ---- Daily to-do completion tracking (additive, fully guarded) ----
 // Reads each person's "To do" -> DAILY section story logs. If anything
 // here fails (or the table isn't created yet), it NEVER breaks the main sync.
