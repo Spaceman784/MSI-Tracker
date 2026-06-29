@@ -109,9 +109,10 @@ $$;
 alter table mis_tasks add column if not exists original_due_on date;
 alter table mis_tasks add column if not exists one_time_section text;
 
--- Optional ADDED/CREATED-date window (p_from / p_to). Both null => counts ALL
--- tasks (identical to before). When set => only tasks ADDED in [p_from, p_to]
--- (created_at, by IST day). The one-time scoring logic is unchanged.
+-- Optional DUE-date window (p_from / p_to). Both null => counts ALL one-time
+-- tasks (with or without a due date). When set => only one-time tasks DUE in
+-- [p_from, p_to] (by due_on); tasks with no due date drop out while a range is
+-- active. The one-time scoring logic is unchanged.
 drop function if exists mis_performance();
 create or replace function mis_performance(p_from date default null, p_to date default null) returns jsonb language sql stable as $$
   with p as (
@@ -128,8 +129,8 @@ create or replace function mis_performance(p_from date default null, p_to date d
       coalesce(sum(current_date - due_on) filter (where is_one_time and not completed and due_on < current_date), 0) as days_overdue,
       coalesce(sum(completed_at::date - due_on) filter (where is_one_time and completed and due_on is not null and completed_at is not null and completed_at::date > due_on), 0) as days_late
     from mis_tasks
-    where (p_from is null or (created_at at time zone 'Asia/Kolkata')::date >= p_from)
-      and (p_to   is null or (created_at at time zone 'Asia/Kolkata')::date <= p_to)
+    where (p_from is null or due_on >= p_from)
+      and (p_to   is null or due_on <= p_to)
       and coalesce(archived, false) = false
     group by assignee
     having count(*) filter (where is_one_time) > 0
