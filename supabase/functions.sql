@@ -109,31 +109,61 @@ $$;
 alter table mis_tasks add column if not exists original_due_on date;
 alter table mis_tasks add column if not exists one_time_section text;
 
+-- One-time SUBTASKS, counted as extra one-time tasks for the subtask's OWN
+-- assignee. Populated by the sync from subtasks of one-time parent tasks (one
+-- level deep). Kept in a SEPARATE table so it affects ONLY the One-Time
+-- scorecard — the KPI tiles, Tasks, Team and Planned-vs-Actual never read it.
+create table if not exists mis_one_time_subtasks (
+  gid              text primary key,
+  parent_gid       text,
+  name             text,
+  assignee         text,
+  completed        boolean,
+  completed_at     timestamptz,
+  due_on           date,
+  original_due_on  date,
+  created_at       timestamptz,
+  one_time_section text,
+  archived         boolean default false,
+  synced_at        timestamptz
+);
+create index if not exists idx_mots_assignee on mis_one_time_subtasks (assignee);
+alter table mis_one_time_subtasks enable row level security;
+
 -- Optional DUE-date window (p_from / p_to). Both null => counts ALL one-time
--- tasks (with or without a due date). When set => only one-time tasks DUE in
--- [p_from, p_to] (by due_on); tasks with no due date drop out while a range is
--- active. The one-time scoring logic is unchanged.
+-- items. When set => only those DUE in [p_from, p_to] (by due_on). Counts now
+-- include one-time SUBTASKS (each under its OWN assignee); scoring is unchanged.
 drop function if exists mis_performance();
 create or replace function mis_performance(p_from date default null, p_to date default null) returns jsonb language sql stable as $$
-  with p as (
-    select assignee,
-      count(*) filter (where is_one_time) as total,
-      count(*) filter (where is_one_time and completed) as completed,
-      count(*) filter (where is_one_time and not completed) as pending,
-      count(*) filter (where is_one_time and not completed and due_on < current_date) as overdue,
-      count(*) filter (where is_one_time and completed and due_on is not null and completed_at is not null and completed_at::date <= due_on) as on_time,
-      count(*) filter (where is_one_time and completed and due_on is not null and completed_at is not null and completed_at::date >  due_on) as delayed,
-      count(*) filter (where is_one_time and completed and due_on is not null and completed_at is not null and (completed_at::date - due_on) > 7) as late_over_7,
-      count(*) filter (where is_one_time and completed and (due_on is null or completed_at is null)) as no_due,
-      count(*) filter (where is_one_time and original_due_on is not null and due_on is not null and abs(due_on - original_due_on) > 7) as revised,
-      coalesce(sum(current_date - due_on) filter (where is_one_time and not completed and due_on < current_date), 0) as days_overdue,
-      coalesce(sum(completed_at::date - due_on) filter (where is_one_time and completed and due_on is not null and completed_at is not null and completed_at::date > due_on), 0) as days_late
+  with src as (
+    -- parent one-time tasks
+    select assignee, completed, completed_at, due_on, original_due_on
     from mis_tasks
+    where is_one_time and coalesce(archived, false) = false
+    union all
+    -- one-time subtasks, attributed to the subtask's OWN assignee
+    select assignee, completed, completed_at, due_on, original_due_on
+    from mis_one_time_subtasks
+    where coalesce(archived, false) = false
+  ),
+  p as (
+    select assignee,
+      count(*) as total,
+      count(*) filter (where completed) as completed,
+      count(*) filter (where not completed) as pending,
+      count(*) filter (where not completed and due_on < current_date) as overdue,
+      count(*) filter (where completed and due_on is not null and completed_at is not null and completed_at::date <= due_on) as on_time,
+      count(*) filter (where completed and due_on is not null and completed_at is not null and completed_at::date >  due_on) as delayed,
+      count(*) filter (where completed and due_on is not null and completed_at is not null and (completed_at::date - due_on) > 7) as late_over_7,
+      count(*) filter (where completed and (due_on is null or completed_at is null)) as no_due,
+      count(*) filter (where original_due_on is not null and due_on is not null and abs(due_on - original_due_on) > 7) as revised,
+      coalesce(sum(current_date - due_on) filter (where not completed and due_on < current_date), 0) as days_overdue,
+      coalesce(sum(completed_at::date - due_on) filter (where completed and due_on is not null and completed_at is not null and completed_at::date > due_on), 0) as days_late
+    from src
     where (p_from is null or due_on >= p_from)
       and (p_to   is null or due_on <= p_to)
-      and coalesce(archived, false) = false
     group by assignee
-    having count(*) filter (where is_one_time) > 0
+    having count(*) > 0
   )
   select coalesce(jsonb_agg(jsonb_build_object(
     'assignee', assignee, 'total', total, 'completed', completed, 'pending', pending, 'overdue', overdue,

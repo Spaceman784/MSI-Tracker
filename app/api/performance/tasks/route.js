@@ -45,5 +45,20 @@ export async function GET(req) {
     if (!data || data.length < 1000) break;
     offset += 1000;
   }
+
+  // One-time SUBTASKS for this person — included so the drill-down list matches
+  // the (subtask-inclusive) scorecard total. They carry the parent's
+  // one_time_section, so the drawer groups them under the same section. Guarded:
+  // if the table isn't there yet, just skip (parent list still renders).
+  let subQ = sb
+    .from("mis_one_time_subtasks")
+    .select("gid,name,due_on,created_at,completed,completed_at,original_due_on,one_time_section")
+    .eq("assignee", assignee)
+    .eq("archived", false);
+  if (dFrom) subQ = subQ.gte("created_at", `${dFrom}T00:00:00+05:30`);
+  if (dTo) subQ = subQ.lt("created_at", `${nextDay(dTo)}T00:00:00+05:30`);
+  const { data: subs } = await subQ.order("due_on", { ascending: true, nullsFirst: false });
+  for (const s of subs || []) tasks.push({ ...s, is_subtask: true });
+
   return NextResponse.json({ assignee, tasks });
 }

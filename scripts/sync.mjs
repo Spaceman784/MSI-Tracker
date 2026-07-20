@@ -6,7 +6,7 @@
 // Takes several minutes for large workspaces (Asana rate limits).
 
 import { createClient } from "@supabase/supabase-js";
-import { fetchWorkspaceData, taskExists } from "../lib/asana.js";
+import { fetchWorkspaceData, taskExists, getSubtasks } from "../lib/asana.js";
 
 const url = process.env.SUPABASE_URL;
 const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -398,6 +398,87 @@ try {
   }
 } catch (e) {
   console.error("⚠ snapshot step skipped:", e.message);
+}
+
+// ---- One-time SUBTASKS (counted as extra one-time tasks, per subtask assignee) ----
+// For every ONE-TIME parent that has subtasks (num_subtasks>0), fetch its direct
+// subtasks, attribute each to the SUBTASK's own assignee, inherit the parent's
+// one-time section, and store in mis_one_time_subtasks (read ONLY by the One-Time
+// scorecard). Fully guarded: missing table or fetch errors never break the sync,
+// and stale rows are pruned only when every parent fetched cleanly.
+try {
+  const subProbe = await sb.from("mis_one_time_subtasks").select("gid").limit(1);
+  if (subProbe.error && /mis_one_time_subtasks/i.test(subProbe.error.message)) {
+    console.log("ℹ 'mis_one_time_subtasks' table not found — skipping one-time subtasks. Run supabase/functions.sql to enable.");
+  } else {
+    const parents = d.tasks.filter((t) => {
+      const projs = t.projects && t.projects.length ? t.projects : t.project ? [t.project] : [];
+      return (t.num_subtasks || 0) > 0 && isOneTime(t.assignee, projs);
+    });
+    console.log(`→ one-time subtasks: ${parents.length} one-time parents have subtasks — fetching (all nested levels)…`);
+
+    const subRows = [];
+    let subFetchOk = true;
+    let si = 0;
+    const SUB_CONC = Number(process.env.ASANA_CONCURRENCY) || 16;
+    const subWorker = async () => {
+      while (si < parents.length) {
+        const t = parents[si++];
+        try {
+          const subs = await getSubtasks(token, t.gid);
+          const sec = oneTimeSection(t.assignee, t.memberships);
+          for (const s of subs) {
+            subRows.push({
+              gid: s.gid,
+              parent_gid: t.gid,
+              name: s.name || "(untitled subtask)",
+              assignee: s.assignee && s.assignee.name ? s.assignee.name : "Unassigned",
+              completed: Boolean(s.completed),
+              completed_at: s.completed_at || null,
+              due_on: s.due_on || (s.due_at ? s.due_at.slice(0, 10) : null),
+              original_due_on: s.due_on || (s.due_at ? s.due_at.slice(0, 10) : null),
+              created_at: s.created_at || null,
+              one_time_section: sec,
+              archived: t.archived || false,
+              synced_at: runStart,
+            });
+          }
+        } catch (e) {
+          subFetchOk = false;
+          console.error(`⚠ subtask fetch failed for ${t.gid}: ${(e && e.message) || e}`);
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(SUB_CONC, parents.length || 1) }, subWorker));
+
+    // de-dupe by gid (a subtask can't legitimately repeat, but guard the upsert)
+    const subByGid = new Map();
+    for (const r of subRows) if (!subByGid.has(r.gid)) subByGid.set(r.gid, r);
+    const finalSub = [...subByGid.values()];
+
+    let subUpsertOk = true;
+    for (let i = 0; i < finalSub.length; i += CHUNK) {
+      const { error } = await sb.from("mis_one_time_subtasks").upsert(finalSub.slice(i, i + CHUNK), { onConflict: "gid" });
+      if (error) {
+        console.error("⚠ one-time subtask upsert error:", error.message);
+        subUpsertOk = false;
+        break;
+      }
+    }
+    if (subUpsertOk) {
+      console.log(`→ one-time subtasks: ${finalSub.length} subtasks upserted across ${parents.length} parents.`);
+      // Replace-on-sync prune — only when EVERY parent fetched cleanly, so a
+      // transient fetch failure can never wipe a parent's subtasks.
+      if (subFetchOk) {
+        const { error: delErr } = await sb.from("mis_one_time_subtasks").delete().lt("synced_at", runStart);
+        if (delErr) console.error("⚠ one-time subtask prune error:", delErr.message);
+      } else {
+        console.warn("⚠ one-time subtask prune SKIPPED — some subtask fetches failed (stale rows kept, safe).");
+      }
+    }
+  }
+} catch (e) {
+  console.error("⚠ one-time subtasks step skipped:", e.message);
 }
 
 // ---- Daily to-do completion tracking (additive, fully guarded) ----
