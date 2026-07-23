@@ -417,6 +417,20 @@ try {
     });
     console.log(`→ one-time subtasks: ${parents.length} one-time parents have subtasks — fetching (all nested levels)…`);
 
+    // Preserve each subtask's FIRST-seen due date (for revision tracking), the
+    // same way main tasks do — so we never overwrite the original with the current.
+    const existingSubOrig = new Map();
+    {
+      let f = 0;
+      for (;;) {
+        const { data } = await sb.from("mis_one_time_subtasks").select("gid,original_due_on").range(f, f + 999);
+        if (!data || data.length === 0) break;
+        for (const r of data) if (r.original_due_on) existingSubOrig.set(r.gid, r.original_due_on);
+        if (data.length < 1000) break;
+        f += 1000;
+      }
+    }
+
     const subRows = [];
     let subFetchOk = true;
     let si = 0;
@@ -436,7 +450,8 @@ try {
               completed: Boolean(s.completed),
               completed_at: s.completed_at || null,
               due_on: s.due_on || (s.due_at ? s.due_at.slice(0, 10) : null),
-              original_due_on: s.due_on || (s.due_at ? s.due_at.slice(0, 10) : null),
+              original_due_on:
+                existingSubOrig.get(s.gid) || s.due_on || (s.due_at ? s.due_at.slice(0, 10) : null),
               created_at: s.created_at || null,
               one_time_section: sec,
               archived: t.archived || false,

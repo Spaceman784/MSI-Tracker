@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { verifySession, SESSION_COOKIE } from "@/lib/auth";
+import { getSupabase } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
 
@@ -44,6 +45,23 @@ export async function GET(req, { params }) {
     const t = task.data || {};
     const comments = (stories.data || []).filter((s) => s.type === "comment");
 
+    // Pull each subtask's stored ORIGINAL due date (for the Revised flag).
+    // Only one-time subtasks are stored; others simply won't have one.
+    const subGids = (subtasks.data || []).map((s) => s.gid);
+    const origMap = new Map();
+    if (subGids.length) {
+      try {
+        const sb = getSupabase();
+        if (sb) {
+          const { data: orig } = await sb
+            .from("mis_one_time_subtasks")
+            .select("gid,original_due_on")
+            .in("gid", subGids);
+          for (const r of orig || []) if (r.original_due_on) origMap.set(r.gid, r.original_due_on);
+        }
+      } catch {}
+    }
+
     return NextResponse.json({
       task: {
         gid: t.gid,
@@ -69,6 +87,7 @@ export async function GET(req, { params }) {
         completed: s.completed,
         assignee: s.assignee && s.assignee.name ? s.assignee.name : "Unassigned",
         due_on: s.due_on || null,
+        original_due_on: origMap.get(s.gid) || null,
       })),
       comments: comments.map((c) => ({
         gid: c.gid,

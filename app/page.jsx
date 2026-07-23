@@ -1546,13 +1546,26 @@ function TaskDetailDrawer({ open, loading, detail, onClose }) {
                 <p className="text-gray-400">No subtasks.</p>
               ) : (
                 <ul className="space-y-1.5">
-                  {detail.subtasks.map((s) => (
-                    <li key={s.gid} className="flex items-center gap-2">
-                      <span className={s.completed ? "text-green-500" : "text-gray-400"}>{s.completed ? "☑" : "☐"}</span>
-                      <span className={s.completed ? "line-through text-gray-400" : ""}>{s.name}</span>
-                      <span className="text-xs text-gray-400 ml-auto">{s.assignee}</span>
-                    </li>
-                  ))}
+                  {detail.subtasks.map((s) => {
+                    const revised =
+                      s.original_due_on && s.due_on && Math.abs(daysBetween(s.original_due_on, s.due_on)) > 7;
+                    return (
+                      <li key={s.gid} className="flex items-center gap-2 flex-wrap">
+                        <span className={s.completed ? "text-green-500" : "text-gray-400"}>{s.completed ? "☑" : "☐"}</span>
+                        <span className={s.completed ? "line-through text-gray-400" : ""}>{s.name}</span>
+                        {s.due_on && <span className="text-xs text-gray-500">· due {s.due_on}</span>}
+                        {revised && (
+                          <span
+                            className="text-[10px] px-1.5 py-0.5 rounded bg-orange-100 text-orange-700 dark:bg-orange-950/50 dark:text-orange-400"
+                            title={`Original due ${s.original_due_on}, now ${s.due_on}`}
+                          >
+                            🔁 Revised (was {s.original_due_on} → now {s.due_on})
+                          </span>
+                        )}
+                        <span className="text-xs text-gray-400 ml-auto">{s.assignee}</span>
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
             </Section>
