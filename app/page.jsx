@@ -28,6 +28,7 @@ export default function Dashboard() {
   const [perfPerson, setPerfPerson] = useState(null);
   const [perfTasks, setPerfTasks] = useState(null);
   const [planned, setPlanned] = useState(null);
+  const [arjunPA, setArjunPA] = useState(null); // Arjun planned-vs-actual TEST
   const [plannedFrom, setPlannedFrom] = useState(""); // empty = all time
   const [plannedTo, setPlannedTo] = useState("");
   const [plannedFixed, setPlannedFixed] = useState(false); // Dynamic (live) vs Fixed (frozen snapshot)
@@ -176,6 +177,17 @@ export default function Dashboard() {
       .then((r) => r.json())
       .then((j) => {
         if (!cancelled) setPlanned(j);
+      })
+      .catch(() => { });
+    // Arjun planned-vs-actual TEST — filtered by Planned End Date
+    const pa = new URLSearchParams();
+    if (plannedFrom) pa.set("from", plannedFrom);
+    if (plannedTo) pa.set("to", plannedTo);
+    setArjunPA(null);
+    fetch(`/api/planned/arjun?${pa.toString()}`)
+      .then((r) => r.json())
+      .then((j) => {
+        if (!cancelled) setArjunPA(j);
       })
       .catch(() => { });
     return () => {
@@ -446,15 +458,22 @@ export default function Dashboard() {
             )}
 
             {tab === "Planned vs Actual" && (
-              <PlannedActualTable
-                data={planned}
-                from={plannedFrom}
-                to={plannedTo}
-                onFrom={setPlannedFrom}
-                onTo={setPlannedTo}
-                fixed={plannedFixed}
-                onFixed={setPlannedFixed}
-              />
+              <div className="space-y-4">
+                <PlannedActualTable
+                  data={planned}
+                  from={plannedFrom}
+                  to={plannedTo}
+                  onFrom={setPlannedFrom}
+                  onTo={setPlannedTo}
+                  fixed={plannedFixed}
+                  onFixed={setPlannedFixed}
+                />
+                <PersonDetail
+                  from={plannedFrom}
+                  to={plannedTo}
+                  people={planned && planned.rows ? planned.rows.map((r) => r.assignee) : []}
+                />
+              </div>
             )}
 
             {tab === "Activity" && <ActivityFeed data={activity} onSelect={setDetailGid} />}
@@ -1411,6 +1430,185 @@ function PlannedActualTable({ data, from, to, onFrom, onTo, fixed, onFixed }) {
           </div>
         </>
       )}
+    </Panel>
+  );
+}
+
+// Per-person detail — shows the SELECTED person's one-time tasks by Planned End Date.
+// Date range + people list come from the parent (the always-on aggregate table above).
+function PersonDetail({ from, to, people }) {
+  const [person, setPerson] = useState("");
+  const [data, setData] = useState(null);
+
+  useEffect(() => {
+    if (!person) { setData(null); return; }
+    let cancelled = false;
+    setData(null);
+    const p = new URLSearchParams({ assignee: person });
+    if (from) p.set("from", from);
+    if (to) p.set("to", to);
+    fetch(`/api/planned/person?${p.toString()}`)
+      .then((r) => r.json())
+      .then((j) => { if (!cancelled) setData(j); })
+      .catch((e) => { if (!cancelled) setData({ error: "DB_ERROR", message: String(e) }); });
+    return () => { cancelled = true; };
+  }, [person, from, to]);
+
+  const opts = ["— Select a person —", ...(people || [])];
+  const cls = (c) =>
+    c === "green"
+      ? "bg-green-100 text-green-700 dark:bg-green-950/50 dark:text-green-400"
+      : c === "yellow"
+        ? "bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-400"
+        : c === "red"
+          ? "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-400"
+          : "bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400";
+  const label = (c) =>
+    c === "green" ? "🟢 On-time / early" : c === "yellow" ? "🟡 Late 1–6d" : c === "red" ? "🔴 Late 7d+" : "⚪ Pending";
+  const rows = (data && data.rows) || [];
+
+  return (
+    <Panel>
+      <h2 className="font-semibold text-sm mb-1">Individual breakdown — by Planned End Date</h2>
+      <p className="text-xs text-gray-400 mb-3">
+        Pick a person to see their one-time tasks (Planned End Date in the range above).
+        Color = Actual vs Planned end date · 🟢 on-time/early · 🟡 1–6d late · 🔴 7d+ late · ⚪ not done yet.
+      </p>
+      <div className="max-w-xs mb-4">
+        <SearchableSelect
+          label="Person"
+          value={person || "— Select a person —"}
+          onChange={(v) => setPerson(v === "— Select a person —" ? "" : v)}
+          options={opts}
+        />
+      </div>
+
+      {!person && (
+        <p className="py-8 text-center text-gray-400 text-sm">Select a person above to see their Planned vs Actual.</p>
+      )}
+      {person && !data && <p className="text-sm text-gray-500">Loading…</p>}
+      {person && data && data.error && (
+        <p className="text-sm text-amber-600 dark:text-amber-400">{data.message || "Error loading data."}</p>
+      )}
+      {person && data && !data.error && (
+        <>
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-2">
+            <div className="flex items-center gap-2">
+              <span className="w-8 h-8 rounded-full bg-indigo-100 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-300 flex items-center justify-center text-xs font-semibold">
+                {initials(person)}
+              </span>
+              <span className="font-semibold text-sm">{person}</span>
+            </div>
+            {data.score != null && (
+              <span className={`inline-flex items-baseline gap-2 px-4 py-2 rounded-xl text-lg font-bold shadow-sm ${scoreBadge(data.score)}`}>
+                {data.score}% <span className="text-xs font-semibold opacity-75">{data.done}/{data.planned} completed</span>
+              </span>
+            )}
+          </div>
+          <div className="overflow-x-auto max-h-[68vh]">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 bg-white dark:bg-[#141414]">
+                <tr className="text-left text-xs uppercase tracking-wide text-gray-400 border-b border-gray-200 dark:border-gray-800">
+                  <th className="py-2.5 px-2">Task</th>
+                  <th className="py-2.5 px-2">Planned End</th>
+                  <th className="py-2.5 px-2">Actual End</th>
+                  <th className="py-2.5 px-2">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.length === 0 && (
+                  <tr>
+                    <td colSpan={4} className="py-6 text-center text-gray-400">
+                      No one-time tasks with a Planned End Date in this range.
+                    </td>
+                  </tr>
+                )}
+                {rows.map((r) => (
+                  <tr key={r.gid} className="border-b border-gray-100 dark:border-gray-900">
+                    <td className="py-2 px-2 max-w-md truncate" title={r.name}>{r.name}</td>
+                    <td className="py-2 px-2 text-gray-500">{r.planned_end_date || "—"}</td>
+                    <td className="py-2 px-2 text-gray-500">{r.actual_end_date || "—"}</td>
+                    <td className="py-2 px-2">
+                      <span className={`inline-block px-2 py-1 rounded-md text-xs font-semibold ${cls(r.color)}`}>{label(r.color)}</span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </Panel>
+  );
+}
+
+// TEST panel: Arjun's one-time tasks scored by Planned vs Actual end date.
+function ArjunPlannedActual({ data }) {
+  if (!data) return <Panel><p className="text-sm text-gray-500">Loading Arjun planned-vs-actual…</p></Panel>;
+  if (data.error) {
+    return (
+      <Panel>
+        <p className="font-semibold text-amber-600 dark:text-amber-400 mb-1">Arjun test not ready</p>
+        <p className="text-sm text-gray-500">{data.message || "Run the ALTER TABLE SQL, then sync."}</p>
+      </Panel>
+    );
+  }
+  const rows = data.rows || [];
+  const cls = (c) =>
+    c === "green"
+      ? "bg-green-100 text-green-700 dark:bg-green-950/50 dark:text-green-400"
+      : c === "yellow"
+        ? "bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-400"
+        : c === "red"
+          ? "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-400"
+          : "bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400";
+  const label = (c) =>
+    c === "green" ? "🟢 On-time / early" : c === "yellow" ? "🟡 Late 1–6d" : c === "red" ? "🔴 Late 7d+" : "⚪ Pending";
+  return (
+    <Panel>
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-1">
+        <h2 className="font-semibold text-sm">Arjun — Planned vs Actual (TEST) · by Planned End Date</h2>
+        {data.score != null && (
+          <span className={`inline-flex items-baseline gap-2 px-4 py-2 rounded-xl text-lg font-bold shadow-sm ${scoreBadge(data.score)}`}>
+            {data.score}% <span className="text-xs font-semibold opacity-75">{data.done}/{data.planned} completed</span>
+          </span>
+        )}
+      </div>
+      <p className="text-xs text-gray-400 mb-3">
+        Arjun's one-time tasks whose <span className="font-semibold">Planned End Date</span> is in the range above.
+        Color = Actual vs Planned end date · 🟢 on-time/early · 🟡 1–6d late · 🔴 7d+ late · ⚪ not done yet.
+      </p>
+      <div className="overflow-x-auto max-h-[70vh]">
+        <table className="w-full text-sm">
+          <thead className="sticky top-0 bg-white dark:bg-[#141414]">
+            <tr className="text-left text-xs uppercase tracking-wide text-gray-400 border-b border-gray-200 dark:border-gray-800">
+              <th className="py-2.5 px-2">Task</th>
+              <th className="py-2.5 px-2">Planned End</th>
+              <th className="py-2.5 px-2">Actual End</th>
+              <th className="py-2.5 px-2">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.length === 0 && (
+              <tr>
+                <td colSpan={4} className="py-6 text-center text-gray-400">
+                  No Arjun one-time tasks with a Planned End Date in this range.
+                </td>
+              </tr>
+            )}
+            {rows.map((r) => (
+              <tr key={r.gid} className="border-b border-gray-100 dark:border-gray-900">
+                <td className="py-2 px-2 max-w-md truncate" title={r.name}>{r.name}</td>
+                <td className="py-2 px-2 text-gray-500">{r.planned_end_date || "—"}</td>
+                <td className="py-2 px-2 text-gray-500">{r.actual_end_date || "—"}</td>
+                <td className="py-2 px-2">
+                  <span className={`inline-block px-2 py-1 rounded-md text-xs font-semibold ${cls(r.color)}`}>{label(r.color)}</span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </Panel>
   );
 }

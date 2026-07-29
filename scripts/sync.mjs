@@ -6,7 +6,7 @@
 // Takes several minutes for large workspaces (Asana rate limits).
 
 import { createClient } from "@supabase/supabase-js";
-import { fetchWorkspaceData, taskExists, getSubtasks } from "../lib/asana.js";
+import { fetchWorkspaceData, taskExists, getSubtasks, getProjects, getProjectTasksWithCustomFields } from "../lib/asana.js";
 
 const url = process.env.SUPABASE_URL;
 const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -516,6 +516,50 @@ try {
   await syncRecurring(sb, token, process.env.ASANA_WORKSPACE_GID || "", { log: console.log });
 } catch (e) {
   console.error("⚠ recurring step skipped:", e.message);
+}
+
+// ---- Planned / Actual end dates for ALL one-time boards — additive, guarded ----
+// Fills mis_tasks.planned_end_date / actual_end_date from the "Planned End Date"
+// + "Actual End date" custom fields, across every one-time board. Never breaks sync.
+try {
+  const paProbe = await sb.from("mis_tasks").select("planned_end_date").limit(1);
+  if (paProbe.error && /planned_end_date/i.test(paProbe.error.message)) {
+    console.log("ℹ 'planned_end_date' column not found — skipping planned/actual. Run the SQL to enable.");
+  } else {
+    const wsg = process.env.ASANA_WORKSPACE_GID || d.workspaceGid;
+    const projects = await getProjects(token, wsg);
+    const oneTimeBoards = projects.filter((p) => !p.archived && /one[ -]?time/i.test(p.name));
+    const pickDate = (t, nameLc) => {
+      const cf = (t.custom_fields || []).find((c) => (c.name || "").trim().toLowerCase() === nameLc);
+      const dv = cf && cf.date_value && (cf.date_value.date || cf.date_value.date_time);
+      return dv ? String(dv).slice(0, 10) : null;
+    };
+    let updated = 0;
+    let scanned = 0;
+    for (const board of oneTimeBoards) {
+      let paTasks = [];
+      try {
+        paTasks = await getProjectTasksWithCustomFields(token, board.gid);
+      } catch (e) {
+        console.error(`⚠ planned/actual fetch failed for "${board.name}": ${(e && e.message) || e}`);
+        continue;
+      }
+      scanned += paTasks.length;
+      for (const t of paTasks) {
+        const planned = pickDate(t, "planned end date");
+        const actual = pickDate(t, "actual end date");
+        if (planned == null && actual == null) continue; // only write tasks that have the fields
+        const { error } = await sb
+          .from("mis_tasks")
+          .update({ planned_end_date: planned, actual_end_date: actual })
+          .eq("gid", t.gid);
+        if (!error) updated++;
+      }
+    }
+    console.log(`→ Planned/Actual end dates: updated ${updated} tasks (scanned ${scanned}) across ${oneTimeBoards.length} one-time boards.`);
+  }
+} catch (e) {
+  console.error("⚠ planned/actual step skipped:", e.message);
 }
 
 console.log(`✅ Sync complete in ${((Date.now() - t0) / 1000).toFixed(0)}s. Last synced: ${runStart}`);

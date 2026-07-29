@@ -221,16 +221,16 @@ returns jsonb language sql stable as $$
     select max(snap_date) sd from mis_due_snapshots where p_as_of is not null and snap_date <= p_as_of
   ),
   src as (
-    -- DYNAMIC branch (p_as_of null): live one-time tasks
-    select assignee, due_on, completed, completed_at, original_due_on
+    -- DYNAMIC branch (p_as_of null): live one-time tasks (+ planned/actual end dates)
+    select assignee, due_on, completed, completed_at, original_due_on, planned_end_date, actual_end_date
     from mis_tasks
     where p_as_of is null
       and is_one_time
       and coalesce(archived, false) = false
-      and due_on is not null
     union all
-    -- FIXED branch (p_as_of set): the frozen snapshot for that day
-    select s.assignee, s.due_on, s.completed, s.completed_at, s.original_due_on
+    -- FIXED branch (p_as_of set): the frozen snapshot (no custom end-date fields → null)
+    select s.assignee, s.due_on, s.completed, s.completed_at, s.original_due_on,
+           null::date as planned_end_date, null::date as actual_end_date
     from mis_due_snapshots s, snap
     where p_as_of is not null
       and snap.sd is not null
@@ -239,17 +239,28 @@ returns jsonb language sql stable as $$
       and coalesce(s.archived, false) = false
       and s.due_on is not null
   ),
+  -- Dynamic mode: measured by PLANNED END DATE (total/filter) + ACTUAL END DATE
+  -- (timeliness) for EVERYONE. Fixed/snapshot mode keeps due_on / completed_at.
+  r as (
+    select assignee,
+      case when p_as_of is null then planned_end_date else due_on end as plan_date,
+      case when p_as_of is null then actual_end_date
+           else (case when completed then completed_at::date end) end as act_date,
+      due_on, original_due_on
+    from src
+  ),
   p as (
     select assignee,
       count(*) as planned,
-      count(*) filter (where completed and completed_at is not null and completed_at::date <= due_on) as on_time,
-      count(*) filter (where completed and completed_at is not null and completed_at::date >  due_on) as late,
-      count(*) filter (where completed and completed_at is not null and (completed_at::date - due_on) > 7) as late_over_7,
-      count(*) filter (where not completed) as not_done,
+      count(*) filter (where act_date is not null and act_date <= plan_date) as on_time,
+      count(*) filter (where act_date is not null and act_date >  plan_date) as late,
+      count(*) filter (where act_date is not null and (act_date - plan_date) > 7) as late_over_7,
+      count(*) filter (where act_date is null) as not_done,
       count(*) filter (where original_due_on is not null and due_on is not null and abs(due_on - original_due_on) > 7) as revised
-    from src
-    where (p_from is null or due_on >= p_from)
-      and (p_to   is null or due_on <= p_to)
+    from r
+    where plan_date is not null
+      and (p_from is null or plan_date >= p_from)
+      and (p_to   is null or plan_date <= p_to)
     group by assignee
     having count(*) > 0
   )
