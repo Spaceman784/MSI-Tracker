@@ -528,7 +528,13 @@ try {
   } else {
     const wsg = process.env.ASANA_WORKSPACE_GID || d.workspaceGid;
     const projects = await getProjects(token, wsg);
-    const oneTimeBoards = projects.filter((p) => !p.archived && /one[ -]?time/i.test(p.name));
+    // Scan boards named "One Time" AND the OVERRIDE boards (e.g. "Sumanth's work
+    // tracker") — those are one-time by rule, not by name, so a name-only filter
+    // would skip them and never capture their Planned/Actual End Date fields.
+    const overrideBoards = new Set(Object.values(ONE_TIME_OVERRIDES).flat().map(norm));
+    const oneTimeBoards = projects.filter(
+      (p) => !p.archived && (/one[ -]?time/i.test(p.name) || overrideBoards.has(norm(p.name)))
+    );
     const pickDate = (t, nameLc) => {
       const cf = (t.custom_fields || []).find((c) => (c.name || "").trim().toLowerCase() === nameLc);
       const dv = cf && cf.date_value && (cf.date_value.date || cf.date_value.date_time);
