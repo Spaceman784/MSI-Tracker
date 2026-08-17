@@ -206,68 +206,37 @@ create or replace function mis_prune_snapshots(p_keep_days int default 120) retu
     and extract(dow from snap_date) <> 0;   -- 0 = Sunday → kept forever
 $$;
 
--- ---- Planned vs Actual: one-time tasks planned (due) in a range vs done on time ----
--- p_from/p_to filter by DUE date; both null = all time (every one-time task with a due date).
--- Score = ALL completed (on-time + late) ÷ planned − 100 (late counts at full
--- credit; not-done = 0). The on_time / late split is still returned for display.
---
--- p_as_of: NULL => "Dynamic" (live mis_tasks, the original behavior). When set,
--- "Fixed" mode reads the FROZEN snapshot for the latest snap_date <= p_as_of.
+-- ---- Planned vs Actual: one-time tasks by PLANNED END DATE vs ACTUAL END DATE ----
+-- p_from/p_to filter by the (frozen) Planned End Date; both null = all time.
+-- "Done" = an Actual End Date is set. The score credits anything done WITHIN 1 WEEK
+-- of the planned date (on-time OR ≤7 days late). Done MORE than 1 week late is
+-- NEUTRAL — excluded from both sides of the score — and reported as delay_over_1week.
+-- Dynamic/Fixed removed: the Planned End Date is frozen at sync time, so it never moves.
+drop function if exists mis_planned_actual(date, date, date);
 drop function if exists mis_planned_actual(date, date);
-create or replace function mis_planned_actual(p_from date default null, p_to date default null, p_as_of date default null)
+create or replace function mis_planned_actual(p_from date default null, p_to date default null)
 returns jsonb language sql stable as $$
-  with snap as (
-    -- the frozen day to read in Fixed mode: latest snapshot on/before p_as_of
-    select max(snap_date) sd from mis_due_snapshots where p_as_of is not null and snap_date <= p_as_of
-  ),
-  src as (
-    -- DYNAMIC branch (p_as_of null): live one-time tasks (+ planned/actual end dates)
-    select assignee, due_on, completed, completed_at, original_due_on, planned_end_date, actual_end_date
-    from mis_tasks
-    where p_as_of is null
-      and is_one_time
-      and coalesce(archived, false) = false
-    union all
-    -- FIXED branch (p_as_of set): the frozen snapshot (no custom end-date fields → null)
-    select s.assignee, s.due_on, s.completed, s.completed_at, s.original_due_on,
-           null::date as planned_end_date, null::date as actual_end_date
-    from mis_due_snapshots s, snap
-    where p_as_of is not null
-      and snap.sd is not null
-      and s.snap_date = snap.sd
-      and s.is_one_time
-      and coalesce(s.archived, false) = false
-      and s.due_on is not null
-  ),
-  -- Dynamic mode: measured by PLANNED END DATE (total/filter) + ACTUAL END DATE
-  -- (timeliness) for EVERYONE. Fixed/snapshot mode keeps due_on / completed_at.
-  r as (
-    select assignee,
-      case when p_as_of is null then planned_end_date else due_on end as plan_date,
-      case when p_as_of is null then actual_end_date
-           else (case when completed then completed_at::date end) end as act_date,
-      due_on, original_due_on
-    from src
-  ),
-  p as (
+  with p as (
     select assignee,
       count(*) as planned,
-      count(*) filter (where act_date is not null and act_date <= plan_date) as on_time,
-      count(*) filter (where act_date is not null and act_date >  plan_date) as late,
-      count(*) filter (where act_date is not null and (act_date - plan_date) > 7) as late_over_7,
-      count(*) filter (where act_date is null) as not_done,
-      count(*) filter (where original_due_on is not null and due_on is not null and abs(due_on - original_due_on) > 7) as revised
-    from r
-    where plan_date is not null
-      and (p_from is null or plan_date >= p_from)
-      and (p_to   is null or plan_date <= p_to)
+      count(*) filter (where actual_end_date is not null and actual_end_date::date <= planned_end_date::date) as on_time,
+      count(*) filter (where actual_end_date is not null and actual_end_date::date > planned_end_date::date and (actual_end_date::date - planned_end_date::date) <= 7) as late,
+      count(*) filter (where actual_end_date is not null and (actual_end_date::date - planned_end_date::date) > 7) as late_over_7,
+      count(*) filter (where actual_end_date is null) as not_done
+    from mis_tasks
+    where is_one_time
+      and coalesce(archived, false) = false
+      and planned_end_date is not null
+      and (p_from is null or planned_end_date::date >= p_from)
+      and (p_to   is null or planned_end_date::date <= p_to)
     group by assignee
     having count(*) > 0
   )
   select coalesce(jsonb_agg(jsonb_build_object(
-    'assignee', assignee, 'planned', planned, 'on_time', on_time, 'late', late, 'not_done', not_done, 'revised', revised,
-    -- >7-days-late completions excluded from BOTH top & bottom (neutral); still shown in 'late'.
-    'score', coalesce(round(100.0 * (on_time + late - late_over_7) / nullif(planned - late_over_7, 0)), 0) - 100
-  ) order by coalesce(round(100.0 * (on_time + late - late_over_7) / nullif(planned - late_over_7, 0)), 0) - 100 asc), '[]'::jsonb)
+    'assignee', assignee, 'planned', planned, 'on_time', on_time, 'late', late,
+    'delay_over_1week', late_over_7, 'not_done', not_done,
+    -- done within 1 week counts; >1 week late is NEUTRAL (excluded top & bottom), shown as delay_over_1week.
+    'score', coalesce(round(100.0 * (on_time + late) / nullif(planned - late_over_7, 0)), 0) - 100
+  ) order by coalesce(round(100.0 * (on_time + late) / nullif(planned - late_over_7, 0)), 0) - 100 asc), '[]'::jsonb)
   from p;
 $$;

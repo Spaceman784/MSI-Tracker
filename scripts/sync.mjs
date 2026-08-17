@@ -350,55 +350,10 @@ await sb
   .from("mis_meta")
   .upsert({ key: "last_synced", value: runStart, updated_at: runStart }, { onConflict: "key" });
 
-// ---- Daily snapshot of one-time tasks (Planned vs Actual "Fixed" mode) ----
-// Upserts every one-time task WITH a due date into TODAY's (IST) snapshot row.
-// Re-running during the day overwrites today's row; past days stay frozen, so a
-// Monday review of last week never shifts when tasks are rescheduled. Fully
-// guarded: if the table isn't created yet, the main sync is unaffected.
-try {
-  const snapProbe = await sb.from("mis_due_snapshots").select("snap_date").limit(1);
-  if (snapProbe.error && /mis_due_snapshots/i.test(snapProbe.error.message)) {
-    console.log("ℹ 'mis_due_snapshots' table not found — skipping snapshot. Run supabase/functions.sql to enable Fixed mode.");
-  } else {
-    const istDate = new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
-    const snapRows = [];
-    for (const r of rows) {
-      const projs = r.projects && r.projects.length ? r.projects : r.project ? [r.project] : [];
-      if (!r.due_on || !isOneTime(r.assignee, projs)) continue; // one-time, due-dated only
-      snapRows.push({
-        snap_date: istDate,
-        gid: r.gid,
-        assignee: r.assignee,
-        due_on: r.due_on,
-        completed: r.completed,
-        completed_at: r.completed_at,
-        is_one_time: true,
-        archived: r.archived || false,
-        original_due_on: r.original_due_on || r.due_on,
-        created_at: r.created_at,
-      });
-    }
-    let snapOk = true;
-    for (let i = 0; i < snapRows.length; i += CHUNK) {
-      const { error } = await sb
-        .from("mis_due_snapshots")
-        .upsert(snapRows.slice(i, i + CHUNK), { onConflict: "snap_date,gid" });
-      if (error) {
-        console.error("⚠ snapshot upsert error:", error.message);
-        snapOk = false;
-        break;
-      }
-    }
-    if (snapOk) {
-      console.log(`→ snapshot: froze ${snapRows.length} one-time tasks for ${istDate}`);
-      const keep = Number(process.env.SYNC_SNAPSHOT_KEEP_DAYS) || 120;
-      const { error: pruneErr } = await sb.rpc("mis_prune_snapshots", { p_keep_days: keep });
-      if (pruneErr) console.error("⚠ snapshot prune skipped:", pruneErr.message);
-    }
-  }
-} catch (e) {
-  console.error("⚠ snapshot step skipped:", e.message);
-}
+// ---- (removed) Daily snapshot step ----
+// This used to feed the Planned-vs-Actual "Fixed" mode. That mode is gone now
+// that Planned End Date is frozen at sync time, so nothing reads mis_due_snapshots
+// any more. The table can be dropped in Supabase whenever you like; harmless to keep.
 
 // ---- One-time SUBTASKS (counted as extra one-time tasks, per subtask assignee) ----
 // For every ONE-TIME parent that has subtasks (num_subtasks>0), fetch its direct
@@ -535,6 +490,17 @@ try {
     const oneTimeBoards = projects.filter(
       (p) => !p.archived && (/one[ -]?time/i.test(p.name) || overrideBoards.has(norm(p.name)))
     );
+    // FREEZE: load gids that ALREADY have a planned_end_date so the sync never
+    // overwrites it. Existing tasks keep their current planned date; only tasks
+    // that don't have one yet get it captured (once), then it's frozen forever.
+    const frozenPlanned = new Set();
+    for (let f = 0; ; f += 1000) {
+      const { data, error } = await sb.from("mis_tasks").select("gid").not("planned_end_date", "is", null).range(f, f + 999);
+      if (error || !data || data.length === 0) break;
+      for (const r of data) frozenPlanned.add(r.gid);
+      if (data.length < 1000) break;
+    }
+    console.log(`→ planned_end_date: ${frozenPlanned.size} already frozen (kept as-is, never overwritten).`);
     const pickDate = (t, nameLc) => {
       const cf = (t.custom_fields || []).find((c) => (c.name || "").trim().toLowerCase() === nameLc);
       const dv = cf && cf.date_value && (cf.date_value.date || cf.date_value.date_time);
@@ -555,10 +521,11 @@ try {
         const planned = pickDate(t, "planned end date");
         const actual = pickDate(t, "actual end date");
         if (planned == null && actual == null) continue; // only write tasks that have the fields
-        const { error } = await sb
-          .from("mis_tasks")
-          .update({ planned_end_date: planned, actual_end_date: actual })
-          .eq("gid", t.gid);
+        // FREEZE the planned end date: set it only if this task doesn't already have
+        // one (first capture); never overwrite. Actual end date always reflects current.
+        const upd = { actual_end_date: actual };
+        if (!frozenPlanned.has(t.gid) && planned != null) upd.planned_end_date = planned;
+        const { error } = await sb.from("mis_tasks").update(upd).eq("gid", t.gid);
         if (!error) updated++;
       }
     }

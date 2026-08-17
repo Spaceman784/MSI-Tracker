@@ -5,13 +5,9 @@ import { getSupabase } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
 
-// Planned vs Actual: one-time tasks PLANNED (due) in a range vs DONE ON TIME.
-// No from/to params = all time.
-//
-// fixed=1 (with a `to` date) => "Fixed" mode: read the FROZEN snapshot at the END
-// of the range, so a past-week review never changes when tasks are rescheduled.
-// If no snapshot exists for that range yet (table just created / reviewing a week
-// before snapshots began), fall back to live and tell the UI (snapshot_used=false).
+// Planned vs Actual: one-time tasks by PLANNED END DATE vs ACTUAL END DATE.
+// No from/to params = all time. The Planned End Date is frozen at sync time, so
+// there is no Fixed/Dynamic mode any more — one straightforward view.
 export async function GET(req) {
   const session = cookies().get(SESSION_COOKIE);
   if (!session || !verifySession(session.value)) {
@@ -21,31 +17,10 @@ export async function GET(req) {
   if (!sb) return NextResponse.json({ error: "NO_SUPABASE" }, { status: 400 });
 
   const sp = new URL(req.url).searchParams;
-  const from = sp.get("from") || null;
-  const to = sp.get("to") || null;
-  const fixed = sp.get("fixed") === "1";
-  const asOf = fixed ? to : null; // freeze as of the END of the range
-  const todayIST = new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
-
-  // In Fixed mode, find the latest snapshot on/before the end date.
-  let snapDate = null;
-  if (asOf) {
-    const { data: snap } = await sb
-      .from("mis_due_snapshots")
-      .select("snap_date")
-      .lte("snap_date", asOf)
-      .order("snap_date", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    if (snap) snapDate = snap.snap_date;
-  }
-
-  // Only Fixed-with-snapshot passes p_as_of; everything else stays on live data
-  // (this also keeps Dynamic working if the new 3-arg SQL hasn't been run yet).
-  const params = { p_from: from, p_to: to };
-  if (snapDate) params.p_as_of = snapDate;
-
-  const { data, error } = await sb.rpc("mis_planned_actual", params);
+  const { data, error } = await sb.rpc("mis_planned_actual", {
+    p_from: sp.get("from") || null,
+    p_to: sp.get("to") || null,
+  });
   if (error) {
     const missing = /mis_planned_actual/.test(error.message);
     return NextResponse.json(
@@ -58,21 +33,5 @@ export async function GET(req) {
       { status: missing ? 400 : 500 }
     );
   }
-  // Coverage / freshness flags, so the UI never sells a stale substitute as a
-  // faithful freeze:
-  //  - in_progress: the range ends today or later, so it can't be frozen yet
-  //    (the end-of-range snapshot is still being overwritten by each sync).
-  //  - stale: the range has fully ended but its end-date snapshot is MISSING
-  //    (a sync gap), so we're showing the nearest EARLIER snapshot instead.
-  const inProgress = Boolean(asOf) && asOf >= todayIST;
-  const stale = Boolean(snapDate) && !inProgress && Boolean(asOf) && snapDate < asOf;
-
-  return NextResponse.json({
-    rows: data || [],
-    fixed,
-    snapshot_used: Boolean(snapDate),
-    as_of: snapDate || asOf || null,
-    stale,
-    in_progress: inProgress,
-  });
+  return NextResponse.json({ rows: data || [] });
 }

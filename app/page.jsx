@@ -31,7 +31,6 @@ export default function Dashboard() {
   const [arjunPA, setArjunPA] = useState(null); // Arjun planned-vs-actual TEST
   const [plannedFrom, setPlannedFrom] = useState(""); // empty = all time
   const [plannedTo, setPlannedTo] = useState("");
-  const [plannedFixed, setPlannedFixed] = useState(false); // Dynamic (live) vs Fixed (frozen snapshot)
   const [refreshTick, setRefreshTick] = useState(0);
 
   // filters
@@ -172,7 +171,6 @@ export default function Dashboard() {
     const p = new URLSearchParams();
     if (plannedFrom) p.set("from", plannedFrom);
     if (plannedTo) p.set("to", plannedTo);
-    if (plannedFixed && plannedTo) p.set("fixed", "1"); // Fixed needs an end date to freeze against
     fetch(`/api/planned?${p.toString()}`)
       .then((r) => r.json())
       .then((j) => {
@@ -193,7 +191,7 @@ export default function Dashboard() {
     return () => {
       cancelled = true;
     };
-  }, [tab, plannedFrom, plannedTo, plannedFixed, refreshTick]);
+  }, [tab, plannedFrom, plannedTo, refreshTick]);
 
   // load the Daily to-do scorecard when the tab is open (and on each refresh tick)
   useEffect(() => {
@@ -465,8 +463,6 @@ export default function Dashboard() {
                   to={plannedTo}
                   onFrom={setPlannedFrom}
                   onTo={setPlannedTo}
-                  fixed={plannedFixed}
-                  onFixed={setPlannedFixed}
                 />
                 <PersonDetail
                   from={plannedFrom}
@@ -1275,7 +1271,7 @@ function PerformancePersonDrawer({ person, tasks, onClose, onSelectTask }) {
   );
 }
 
-function PlannedActualTable({ data, from, to, onFrom, onTo, fixed, onFixed }) {
+function PlannedActualTable({ data, from, to, onFrom, onTo }) {
   const [q, setQ] = useState("");
   const rows = (data && data.rows) || [];
   const s = q.trim().toLowerCase();
@@ -1285,31 +1281,30 @@ function PlannedActualTable({ data, from, to, onFrom, onTo, fixed, onFixed }) {
       planned: a.planned + r.planned,
       on_time: a.on_time + r.on_time,
       late: a.late + r.late,
+      delay: a.delay + (r.delay_over_1week || 0),
       not_done: a.not_done + r.not_done,
-      revised: a.revised + (r.revised || 0),
     }),
-    { planned: 0, on_time: 0, late: 0, not_done: 0, revised: 0 }
+    { planned: 0, on_time: 0, late: 0, delay: 0, not_done: 0 }
   );
 
   return (
     <Panel>
       <h2 className="font-semibold text-sm mb-1">Planned vs Actual — One-Time tasks</h2>
       <p className="text-xs text-gray-400 mb-3">
-        <span className="font-semibold">Planned</span> = one-time tasks whose <span className="font-semibold">due date</span> falls
-        in the range below (empty = all time). <span className="font-semibold">Actual</span> = completed (on-time{" "}
-        <span className="font-semibold">or late</span> — both count). Score: 0% = everything done · −100% = nothing done.
-        Worst first.{" "}
-        <span className="font-semibold">Revised</span> = tasks whose due date was pushed more than 7 days from the original
-        (same as One-Time).
+        <span className="font-semibold">Planned</span> = one-time tasks whose <span className="font-semibold">Planned End Date</span>{" "}
+        falls in the range below (empty = all time). <span className="font-semibold">Actual</span> = the task&apos;s{" "}
+        <span className="font-semibold">Actual End Date</span>. Done <span className="font-semibold">within 1 week</span> of planned
+        counts (on-time or ≤7 days late); <span className="font-semibold">more than 1 week late</span> is neutral (not scored) and
+        shown under <span className="font-semibold">Delay &gt;1wk</span>. Score: 0% = all on time · −100% = none. Worst first.
       </p>
 
       <div className="flex flex-wrap items-end gap-3 mb-4">
         <div>
-          <label className="filter-label">Due date from</label>
+          <label className="filter-label">Planned end date from</label>
           <input type="date" value={from} onChange={(e) => onFrom(e.target.value)} className="filter-input" />
         </div>
         <div>
-          <label className="filter-label">Due date to</label>
+          <label className="filter-label">Planned end date to</label>
           <input type="date" value={to} onChange={(e) => onTo(e.target.value)} className="filter-input" />
         </div>
         <button
@@ -1317,7 +1312,6 @@ function PlannedActualTable({ data, from, to, onFrom, onTo, fixed, onFixed }) {
           onClick={() => {
             onFrom("");
             onTo("");
-            onFixed(false);
           }}
           disabled={!from && !to}
           className="btn-ghost disabled:opacity-40 disabled:cursor-not-allowed"
@@ -1325,30 +1319,6 @@ function PlannedActualTable({ data, from, to, onFrom, onTo, fixed, onFixed }) {
         >
           ✕ Clear
         </button>
-        <div>
-          <label className="filter-label">View</label>
-          <div className="inline-flex rounded-lg border border-gray-200 dark:border-gray-800 overflow-hidden">
-            <button
-              type="button"
-              onClick={() => onFixed(false)}
-              className={`px-3 py-1.5 text-xs font-medium transition ${!fixed ? "bg-indigo-500 text-white" : "text-gray-500 hover:bg-gray-100 dark:hover:bg-[#1a1a1a]"
-                }`}
-              title="Live — numbers move if tasks are rescheduled"
-            >
-              Dynamic
-            </button>
-            <button
-              type="button"
-              onClick={() => onFixed(true)}
-              disabled={!to}
-              className={`px-3 py-1.5 text-xs font-medium transition disabled:opacity-40 disabled:cursor-not-allowed ${fixed ? "bg-indigo-500 text-white" : "text-gray-500 hover:bg-gray-100 dark:hover:bg-[#1a1a1a]"
-                }`}
-              title={to ? "Frozen — locks the numbers as of the 'Due date to'" : "Pick a 'Due date to' first to freeze the view"}
-            >
-              Fixed
-            </button>
-          </div>
-        </div>
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
@@ -1356,26 +1326,6 @@ function PlannedActualTable({ data, from, to, onFrom, onTo, fixed, onFixed }) {
           className="filter-input max-w-xs ml-auto"
         />
       </div>
-
-      {fixed && to && data && !data.error && (
-        !data.snapshot_used ? (
-          <p className="text-xs text-amber-600 dark:text-amber-400 mb-2">
-            No snapshot for this range yet — showing live numbers. Frozen history builds from the first sync after this update.
-          </p>
-        ) : data.in_progress ? (
-          <p className="text-xs text-gray-400 mb-2">
-            🔒 Snapshot as of {data.as_of}. This range isn&apos;t over yet — it finalizes after {to}.
-          </p>
-        ) : data.stale ? (
-          <p className="text-xs text-amber-600 dark:text-amber-400 mb-2">
-            ⚠ No snapshot for {to} (sync gap) — showing the nearest one from {data.as_of}. Changes after {data.as_of} aren&apos;t reflected.
-          </p>
-        ) : (
-          <p className="text-xs text-gray-400 mb-2">
-            🔒 Planned as of {data.as_of} · frozen snapshot — won&apos;t change as tasks are rescheduled.
-          </p>
-        )
-      )}
 
       {!data && <p className="text-sm text-gray-500">Loading planned vs actual…</p>}
       {data && data.error && (
@@ -1386,8 +1336,8 @@ function PlannedActualTable({ data, from, to, onFrom, onTo, fixed, onFixed }) {
         <>
           <p className="text-xs text-gray-400 mb-2">
             {filtered.length} people · planned {totals.planned.toLocaleString()} · on-time{" "}
-            {totals.on_time.toLocaleString()} · late {totals.late.toLocaleString()} · not done{" "}
-            {totals.not_done.toLocaleString()} · revised {totals.revised.toLocaleString()}
+            {totals.on_time.toLocaleString()} · late {totals.late.toLocaleString()} · delay &gt;1wk{" "}
+            {totals.delay.toLocaleString()} · not done {totals.not_done.toLocaleString()}
           </p>
           <div className="overflow-x-auto max-h-[70vh]">
             <table className="w-full text-sm">
@@ -1395,10 +1345,10 @@ function PlannedActualTable({ data, from, to, onFrom, onTo, fixed, onFixed }) {
                 <tr className="text-left text-xs uppercase tracking-wide text-gray-400 border-b border-gray-200 dark:border-gray-800">
                   <th className="py-2.5 px-2">Assignee</th>
                   <th className="py-2.5 px-2">Planned</th>
-                  <th className="py-2.5 px-2">On-Time (Actual)</th>
-                  <th className="py-2.5 px-2">Late</th>
+                  <th className="py-2.5 px-2">On-Time</th>
+                  <th className="py-2.5 px-2">Late (≤1wk)</th>
+                  <th className="py-2.5 px-2">Delay &gt;1wk</th>
                   <th className="py-2.5 px-2">Not Done</th>
-                  <th className="py-2.5 px-2">Revised</th>
                   <th className="py-2.5 px-2">Score</th>
                 </tr>
               </thead>
@@ -1406,7 +1356,7 @@ function PlannedActualTable({ data, from, to, onFrom, onTo, fixed, onFixed }) {
                 {filtered.length === 0 && (
                   <tr>
                     <td colSpan={7} className="py-6 text-center text-gray-400">
-                      No one-time tasks with a due date in this range.
+                      No one-time tasks with a Planned End Date in this range.
                     </td>
                   </tr>
                 )}
@@ -1416,8 +1366,8 @@ function PlannedActualTable({ data, from, to, onFrom, onTo, fixed, onFixed }) {
                     <td className="py-2.5 px-2">{r.planned}</td>
                     <td className="py-2.5 px-2 text-green-600 dark:text-green-400">{r.on_time}</td>
                     <td className="py-2.5 px-2 text-red-600 dark:text-red-400">{r.late}</td>
+                    <td className="py-2.5 px-2 text-orange-600 dark:text-orange-400">{r.delay_over_1week ?? 0}</td>
                     <td className="py-2.5 px-2 text-amber-600 dark:text-amber-400">{r.not_done}</td>
-                    <td className="py-2.5 px-2 text-orange-600 dark:text-orange-400">{r.revised ?? 0}</td>
                     <td className="py-2.5 px-2">
                       <span className={`inline-block px-2 py-1 rounded-md text-xs font-semibold ${scoreBadge(r.score)}`}>
                         {r.score}%
