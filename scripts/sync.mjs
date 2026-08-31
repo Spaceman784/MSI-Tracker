@@ -512,27 +512,44 @@ try {
     };
     let updated = 0;
     let scanned = 0;
-    for (const board of oneTimeBoards) {
-      let paTasks = [];
-      try {
-        paTasks = await getProjectTasksWithCustomFields(token, board.gid);
-      } catch (e) {
-        console.error(`⚠ planned/actual fetch failed for "${board.name}": ${(e && e.message) || e}`);
-        continue;
+    // Fetch every one-time board's custom-field tasks CONCURRENTLY (was sequential).
+    const PA_CONC = Number(process.env.ASANA_CONCURRENCY) || 16;
+    const ops = []; // per-task updates to apply: { gid, upd }
+    let bi = 0;
+    const boardWorker = async () => {
+      while (bi < oneTimeBoards.length) {
+        const board = oneTimeBoards[bi++];
+        let paTasks = [];
+        try {
+          paTasks = await getProjectTasksWithCustomFields(token, board.gid);
+        } catch (e) {
+          console.error(`⚠ planned/actual fetch failed for "${board.name}": ${(e && e.message) || e}`);
+          continue;
+        }
+        scanned += paTasks.length;
+        for (const t of paTasks) {
+          const planned = pickDate(t, "planned end date");
+          const actual = pickDate(t, "actual end date");
+          if (planned == null && actual == null) continue; // only write tasks that have the fields
+          // FREEZE the planned end date: set it only if this task doesn't already have
+          // one (first capture); never overwrite. Actual end date always reflects current.
+          const upd = { actual_end_date: actual };
+          if (!frozenPlanned.has(t.gid) && planned != null) upd.planned_end_date = planned;
+          ops.push({ gid: t.gid, upd });
+        }
       }
-      scanned += paTasks.length;
-      for (const t of paTasks) {
-        const planned = pickDate(t, "planned end date");
-        const actual = pickDate(t, "actual end date");
-        if (planned == null && actual == null) continue; // only write tasks that have the fields
-        // FREEZE the planned end date: set it only if this task doesn't already have
-        // one (first capture); never overwrite. Actual end date always reflects current.
-        const upd = { actual_end_date: actual };
-        if (!frozenPlanned.has(t.gid) && planned != null) upd.planned_end_date = planned;
-        const { error } = await sb.from("mis_tasks").update(upd).eq("gid", t.gid);
+    };
+    await Promise.all(Array.from({ length: Math.min(PA_CONC, oneTimeBoards.length || 1) }, boardWorker));
+    // Apply the per-task updates CONCURRENTLY too (was one sequential round-trip each).
+    let oi = 0;
+    const upWorker = async () => {
+      while (oi < ops.length) {
+        const { gid, upd } = ops[oi++];
+        const { error } = await sb.from("mis_tasks").update(upd).eq("gid", gid);
         if (!error) updated++;
       }
-    }
+    };
+    await Promise.all(Array.from({ length: Math.min(12, ops.length || 1) }, upWorker));
     console.log(`→ Planned/Actual end dates: updated ${updated} tasks (scanned ${scanned}) across ${oneTimeBoards.length} one-time boards.`);
   }
 } catch (e) {
