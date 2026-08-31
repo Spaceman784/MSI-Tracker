@@ -502,7 +502,11 @@ try {
     }
     console.log(`→ planned_end_date: ${frozenPlanned.size} already frozen (kept as-is, never overwritten).`);
     const pickDate = (t, nameLc) => {
-      const cf = (t.custom_fields || []).find((c) => (c.name || "").trim().toLowerCase() === nameLc);
+      // A board can have DUPLICATE custom fields with the SAME name (one filled,
+      // one empty). Match ALL of them and prefer the one that actually has a value,
+      // so we never grab the hidden empty duplicate.
+      const matches = (t.custom_fields || []).filter((c) => (c.name || "").trim().toLowerCase() === nameLc);
+      const cf = matches.find((c) => c.date_value && (c.date_value.date || c.date_value.date_time)) || matches[0];
       const dv = cf && cf.date_value && (cf.date_value.date || cf.date_value.date_time);
       return dv ? String(dv).slice(0, 10) : null;
     };
