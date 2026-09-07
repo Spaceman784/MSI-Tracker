@@ -218,8 +218,10 @@ create or replace function mis_planned_actual(p_from date default null, p_to dat
 returns jsonb language sql stable as $$
   with p as (
     select assignee,
-      -- total = every one-time task for the person (planned + unplanned). ALWAYS all-time — ignores the date range.
-      count(*) as total,
+      -- total = planned + unplanned (both range-scoped): planned tasks whose Planned End Date is in range,
+      -- plus unplanned tasks created in range. Follows the date range like the two columns it sums.
+      count(*) filter (where (planned_end_date is not null and (p_from is null or planned_end_date::date >= p_from) and (p_to is null or planned_end_date::date <= p_to))
+                          or (planned_end_date is null and (p_from is null or created_at::date >= p_from) and (p_to is null or created_at::date <= p_to))) as total,
       -- unplanned = no Planned End Date set. Follows the SAME date range, but measured on the task's
       -- CREATED date (created_at), not planned end date — a task with no plan counts if it was created in the range.
       count(*) filter (where planned_end_date is null and (p_from is null or created_at::date >= p_from) and (p_to is null or created_at::date <= p_to)) as unplanned,
