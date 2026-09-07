@@ -220,9 +220,9 @@ returns jsonb language sql stable as $$
     select assignee,
       -- total = every one-time task for the person (planned + unplanned). ALWAYS all-time — ignores the date range.
       count(*) as total,
-      -- unplanned = no Planned End Date set (the visible field; the sync already
-      -- prefers the filled duplicate, so null here means genuinely unset). ALSO all-time — ignores the date range.
-      count(*) filter (where planned_end_date is null) as unplanned,
+      -- unplanned = no Planned End Date set. Follows the SAME date range, but measured on the task's
+      -- CREATED date (created_at), not planned end date — a task with no plan counts if it was created in the range.
+      count(*) filter (where planned_end_date is null and (p_from is null or created_at::date >= p_from) and (p_to is null or created_at::date <= p_to)) as unplanned,
       -- planned + all scored columns RESPECT the date range: only tasks whose Planned End Date falls in it.
       count(*) filter (where planned_end_date is not null and (p_from is null or planned_end_date::date >= p_from) and (p_to is null or planned_end_date::date <= p_to)) as planned,
       count(*) filter (where planned_end_date is not null and (p_from is null or planned_end_date::date >= p_from) and (p_to is null or planned_end_date::date <= p_to) and actual_end_date is not null and actual_end_date::date <= planned_end_date::date) as on_time,
