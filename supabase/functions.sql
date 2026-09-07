@@ -218,25 +218,38 @@ create or replace function mis_planned_actual(p_from date default null, p_to dat
 returns jsonb language sql stable as $$
   with p as (
     select assignee,
-      count(*) as planned,
-      count(*) filter (where actual_end_date is not null and actual_end_date::date <= planned_end_date::date) as on_time,
-      count(*) filter (where actual_end_date is not null and actual_end_date::date > planned_end_date::date and (actual_end_date::date - planned_end_date::date) <= 7) as late,
-      count(*) filter (where actual_end_date is not null and (actual_end_date::date - planned_end_date::date) > 7) as late_over_7,
-      count(*) filter (where actual_end_date is null) as not_done
+      -- total = every one-time task for the person (planned + unplanned).
+      count(*) as total,
+      -- unplanned = no Planned End Date set (the visible field; the sync already
+      -- prefers the filled duplicate, so null here means genuinely unset).
+      count(*) filter (where planned_end_date is null) as unplanned,
+      -- planned = has a Planned End Date; only these feed the score.
+      count(*) filter (where planned_end_date is not null) as planned,
+      count(*) filter (where planned_end_date is not null and actual_end_date is not null and actual_end_date::date <= planned_end_date::date) as on_time,
+      count(*) filter (where planned_end_date is not null and actual_end_date is not null and actual_end_date::date > planned_end_date::date and (actual_end_date::date - planned_end_date::date) <= 7) as late,
+      count(*) filter (where planned_end_date is not null and actual_end_date is not null and (actual_end_date::date - planned_end_date::date) > 7) as late_over_7,
+      count(*) filter (where planned_end_date is not null and actual_end_date is null) as not_done
     from mis_tasks
     where is_one_time
       and coalesce(archived, false) = false
-      and planned_end_date is not null
+      -- Range applies to Planned End Date. Unplanned tasks have no date, so a
+      -- selected range naturally drops them (they show only in the all-time view).
       and (p_from is null or planned_end_date::date >= p_from)
       and (p_to   is null or planned_end_date::date <= p_to)
     group by assignee
     having count(*) > 0
   )
   select coalesce(jsonb_agg(jsonb_build_object(
-    'assignee', assignee, 'planned', planned, 'on_time', on_time, 'late', late,
+    'assignee', assignee, 'total', total, 'unplanned', unplanned, 'planned', planned,
+    'on_time', on_time, 'late', late,
     'delay_over_1week', late_over_7, 'not_done', not_done,
     -- done within 1 week counts; >1 week late is NEUTRAL (excluded top & bottom), shown as delay_over_1week.
-    'score', coalesce(round(100.0 * (on_time + late) / nullif(planned - late_over_7, 0)), 0) - 100
-  ) order by coalesce(round(100.0 * (on_time + late) / nullif(planned - late_over_7, 0)), 0) - 100 asc), '[]'::jsonb)
+    -- No scorable planned tasks (planned = 0, or all of them are >1wk-late neutral) → score is null (shown as "—"), not −100.
+    'score', case when (planned - late_over_7) > 0
+                  then round(100.0 * (on_time + late) / (planned - late_over_7)) - 100
+                  else null end
+  ) order by (case when (planned - late_over_7) > 0
+                  then round(100.0 * (on_time + late) / (planned - late_over_7)) - 100
+                  else null end) asc nulls last), '[]'::jsonb)
   from p;
 $$;

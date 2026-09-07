@@ -1278,13 +1278,15 @@ function PlannedActualTable({ data, from, to, onFrom, onTo }) {
   const filtered = s ? rows.filter((r) => r.assignee.toLowerCase().includes(s)) : rows;
   const totals = filtered.reduce(
     (a, r) => ({
+      total: a.total + (r.total || 0),
+      unplanned: a.unplanned + (r.unplanned || 0),
       planned: a.planned + r.planned,
       on_time: a.on_time + r.on_time,
       late: a.late + r.late,
       delay: a.delay + (r.delay_over_1week || 0),
       not_done: a.not_done + r.not_done,
     }),
-    { planned: 0, on_time: 0, late: 0, delay: 0, not_done: 0 }
+    { total: 0, unplanned: 0, planned: 0, on_time: 0, late: 0, delay: 0, not_done: 0 }
   );
 
   return (
@@ -1295,7 +1297,9 @@ function PlannedActualTable({ data, from, to, onFrom, onTo }) {
         falls in the range below (empty = all time). <span className="font-semibold">Actual</span> = the task&apos;s{" "}
         <span className="font-semibold">Actual End Date</span>. Done <span className="font-semibold">within 1 week</span> of planned
         counts (on-time or ≤7 days late); <span className="font-semibold">more than 1 week late</span> is neutral (not scored) and
-        shown under <span className="font-semibold">Delay &gt;1wk</span>. Score: 0% = all on time · −100% = none. Worst first.
+        shown under <span className="font-semibold">Delay &gt;1wk</span>. <span className="font-semibold">Total</span> = all one-time
+        tasks; <span className="font-semibold">Unplanned</span> = no Planned End Date set (only scored tasks feed the score; unplanned
+        show only in the all-time view). Score: 0% = all on time · −100% = none · — = nothing scorable. Worst first.
       </p>
 
       <div className="flex flex-wrap items-end gap-3 mb-4">
@@ -1335,16 +1339,19 @@ function PlannedActualTable({ data, from, to, onFrom, onTo }) {
       {data && !data.error && (
         <>
           <p className="text-xs text-gray-400 mb-2">
-            {filtered.length} people · planned {totals.planned.toLocaleString()} · on-time{" "}
-            {totals.on_time.toLocaleString()} · late {totals.late.toLocaleString()} · delay &gt;1wk{" "}
-            {totals.delay.toLocaleString()} · not done {totals.not_done.toLocaleString()}
+            {filtered.length} people · total {totals.total.toLocaleString()} · planned {totals.planned.toLocaleString()} ·
+            unplanned {totals.unplanned.toLocaleString()} · on-time {totals.on_time.toLocaleString()} · late{" "}
+            {totals.late.toLocaleString()} · delay &gt;1wk {totals.delay.toLocaleString()} · not done{" "}
+            {totals.not_done.toLocaleString()}
           </p>
           <div className="overflow-x-auto max-h-[70vh]">
             <table className="w-full text-sm">
               <thead className="sticky top-0 bg-white dark:bg-[#141414]">
                 <tr className="text-left text-xs uppercase tracking-wide text-gray-400 border-b border-gray-200 dark:border-gray-800">
                   <th className="py-2.5 px-2">Assignee</th>
+                  <th className="py-2.5 px-2">Total</th>
                   <th className="py-2.5 px-2">Planned</th>
+                  <th className="py-2.5 px-2">Unplanned</th>
                   <th className="py-2.5 px-2">On-Time</th>
                   <th className="py-2.5 px-2">Late (≤1wk)</th>
                   <th className="py-2.5 px-2">Delay &gt;1wk</th>
@@ -1355,23 +1362,31 @@ function PlannedActualTable({ data, from, to, onFrom, onTo }) {
               <tbody>
                 {filtered.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="py-6 text-center text-gray-400">
-                      No one-time tasks with a Planned End Date in this range.
+                    <td colSpan={9} className="py-6 text-center text-gray-400">
+                      No one-time tasks in this range.
                     </td>
                   </tr>
                 )}
                 {filtered.map((r) => (
                   <tr key={r.assignee} className="border-b border-gray-100 dark:border-gray-900 hover:bg-gray-50 dark:hover:bg-[#1a1a1a]">
                     <td className="py-2.5 px-2 font-medium">{r.assignee}</td>
+                    <td className="py-2.5 px-2 font-semibold">{r.total ?? 0}</td>
                     <td className="py-2.5 px-2">{r.planned}</td>
+                    <td className="py-2.5 px-2 text-gray-500 dark:text-gray-400">{r.unplanned ?? 0}</td>
                     <td className="py-2.5 px-2 text-green-600 dark:text-green-400">{r.on_time}</td>
                     <td className="py-2.5 px-2 text-red-600 dark:text-red-400">{r.late}</td>
                     <td className="py-2.5 px-2 text-orange-600 dark:text-orange-400">{r.delay_over_1week ?? 0}</td>
                     <td className="py-2.5 px-2 text-amber-600 dark:text-amber-400">{r.not_done}</td>
                     <td className="py-2.5 px-2">
-                      <span className={`inline-block px-2 py-1 rounded-md text-xs font-semibold ${scoreBadge(r.score)}`}>
-                        {r.score}%
-                      </span>
+                      {r.score == null ? (
+                        <span className="inline-block px-2 py-1 rounded-md text-xs font-semibold bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400">
+                          —
+                        </span>
+                      ) : (
+                        <span className={`inline-block px-2 py-1 rounded-md text-xs font-semibold ${scoreBadge(r.score)}`}>
+                          {r.score}%
+                        </span>
+                      )}
                     </td>
                   </tr>
                 ))}
