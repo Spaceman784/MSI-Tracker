@@ -1297,9 +1297,10 @@ function PlannedActualTable({ data, from, to, onFrom, onTo }) {
         falls in the range below (empty = all time). <span className="font-semibold">Actual</span> = the task&apos;s{" "}
         <span className="font-semibold">Actual End Date</span>. Done <span className="font-semibold">within 1 week</span> of planned
         counts (on-time or ≤7 days late); <span className="font-semibold">more than 1 week late</span> is neutral (not scored) and
-        shown under <span className="font-semibold">Delay &gt;1wk</span>. <span className="font-semibold">Total</span> = all one-time
-        tasks; <span className="font-semibold">Unplanned</span> = no Planned End Date set (only scored tasks feed the score; unplanned
-        show only in the all-time view). Score: 0% = all on time · −100% = none · — = nothing scorable. Worst first.
+        shown under <span className="font-semibold">Delay &gt;1wk</span>. <span className="font-semibold">Total</span> and{" "}
+        <span className="font-semibold">Unplanned</span> (no Planned End Date set) are always all-time and ignore the date range; only{" "}
+        <span className="font-semibold">Planned</span> and the scored columns follow it. Score: 0% = all on time · −100% = none · — =
+        nothing scorable. Worst first.
       </p>
 
       <div className="flex flex-wrap items-end gap-3 mb-4">

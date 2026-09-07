@@ -218,24 +218,20 @@ create or replace function mis_planned_actual(p_from date default null, p_to dat
 returns jsonb language sql stable as $$
   with p as (
     select assignee,
-      -- total = every one-time task for the person (planned + unplanned).
+      -- total = every one-time task for the person (planned + unplanned). ALWAYS all-time — ignores the date range.
       count(*) as total,
       -- unplanned = no Planned End Date set (the visible field; the sync already
-      -- prefers the filled duplicate, so null here means genuinely unset).
+      -- prefers the filled duplicate, so null here means genuinely unset). ALSO all-time — ignores the date range.
       count(*) filter (where planned_end_date is null) as unplanned,
-      -- planned = has a Planned End Date; only these feed the score.
-      count(*) filter (where planned_end_date is not null) as planned,
-      count(*) filter (where planned_end_date is not null and actual_end_date is not null and actual_end_date::date <= planned_end_date::date) as on_time,
-      count(*) filter (where planned_end_date is not null and actual_end_date is not null and actual_end_date::date > planned_end_date::date and (actual_end_date::date - planned_end_date::date) <= 7) as late,
-      count(*) filter (where planned_end_date is not null and actual_end_date is not null and (actual_end_date::date - planned_end_date::date) > 7) as late_over_7,
-      count(*) filter (where planned_end_date is not null and actual_end_date is null) as not_done
+      -- planned + all scored columns RESPECT the date range: only tasks whose Planned End Date falls in it.
+      count(*) filter (where planned_end_date is not null and (p_from is null or planned_end_date::date >= p_from) and (p_to is null or planned_end_date::date <= p_to)) as planned,
+      count(*) filter (where planned_end_date is not null and (p_from is null or planned_end_date::date >= p_from) and (p_to is null or planned_end_date::date <= p_to) and actual_end_date is not null and actual_end_date::date <= planned_end_date::date) as on_time,
+      count(*) filter (where planned_end_date is not null and (p_from is null or planned_end_date::date >= p_from) and (p_to is null or planned_end_date::date <= p_to) and actual_end_date is not null and actual_end_date::date > planned_end_date::date and (actual_end_date::date - planned_end_date::date) <= 7) as late,
+      count(*) filter (where planned_end_date is not null and (p_from is null or planned_end_date::date >= p_from) and (p_to is null or planned_end_date::date <= p_to) and actual_end_date is not null and (actual_end_date::date - planned_end_date::date) > 7) as late_over_7,
+      count(*) filter (where planned_end_date is not null and (p_from is null or planned_end_date::date >= p_from) and (p_to is null or planned_end_date::date <= p_to) and actual_end_date is null) as not_done
     from mis_tasks
     where is_one_time
       and coalesce(archived, false) = false
-      -- Range applies to Planned End Date. Unplanned tasks have no date, so a
-      -- selected range naturally drops them (they show only in the all-time view).
-      and (p_from is null or planned_end_date::date >= p_from)
-      and (p_to   is null or planned_end_date::date <= p_to)
     group by assignee
     having count(*) > 0
   )
